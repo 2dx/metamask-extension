@@ -38,6 +38,8 @@ const transferTokens = document.getElementById('transferTokens')
 const approveTokens = document.getElementById('approveTokens')
 
 deployButton.addEventListener('click', async function (event) {
+  document.getElementById('contractStatus').innerHTML = 'Deploying'
+
   var piggybank = await piggybankContract.new(
     {
       from: web3.eth.accounts[0],
