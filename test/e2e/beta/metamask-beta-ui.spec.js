@@ -515,15 +515,15 @@ describe('MetaMask', function () {
       await driver.switchTo().window(dapp)
       await delay(regularDelayMs)
 
-      let contractStatus = await driver.findElement(By.css('#contractStatus'))
-      await driver.wait(until.elementTextMatches(contractStatus, /Deployed/))
+      let contractStatus = await driver.findElement(By.css('#contractStatus'), 10000)
+      await driver.wait(until.elementTextMatches(contractStatus, /Deployed/), 10000)
 
       const depositButton = await findElement(driver, By.css('#depositButton'))
       await depositButton.click()
       await delay(largeDelayMs)
 
-      contractStatus = await driver.findElement(By.css('#contractStatus'))
-      await driver.wait(until.elementTextMatches(contractStatus, /Deposit\sinitiated/))
+      contractStatus = await driver.findElement(By.css('#contractStatus'), 10000)
+      await driver.wait(until.elementTextMatches(contractStatus, /Deposit\sinitiated/), 10000)
 
       await driver.switchTo().window(extension)
       await delay(largeDelayMs)
@@ -539,8 +539,8 @@ describe('MetaMask', function () {
       await configureGas.click()
       await delay(regularDelayMs)
 
-      const gasModal = await driver.findElement(By.css('span .modal'))
-      await driver.wait(until.elementLocated(By.css('.customize-gas__title')))
+      const gasModal = await driver.findElement(By.css('span .modal'), 10000)
+      await driver.wait(until.elementLocated(By.css('.customize-gas__title')), 10000)
 
       const [gasPriceInput, gasLimitInput] = await findElements(driver, By.css('.customize-gas-input'))
       await gasPriceInput.clear()
@@ -559,7 +559,7 @@ describe('MetaMask', function () {
       await delay(regularDelayMs)
 
       const txStatuses = await findElements(driver, By.css('.tx-list-status'))
-      await driver.wait(until.elementTextMatches(txStatuses[0], /Confirmed/))
+      await driver.wait(until.elementTextMatches(txStatuses[0], /Confirmed/), 10000)
 
       const txValues = await findElement(driver, By.css('.tx-list-value'))
       await driver.wait(until.elementTextMatches(txValues, /4\sETH/), 10000)
