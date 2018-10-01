@@ -3,9 +3,12 @@ const Component = require('react').Component
 const h = require('react-hyperscript')
 const connect = require('react-redux').connect
 const actions = require('./actions')
-const Mascot = require('./components/mascot')
 const getCaretCoordinates = require('textarea-caret')
 const EventEmitter = require('events').EventEmitter
+const { OLD_UI_NETWORK_TYPE } = require('../../app/scripts/config').enums
+const environmentType = require('../../app/scripts/lib/environment-type')
+
+const Mascot = require('./components/mascot')
 
 module.exports = connect(mapStateToProps)(UnlockScreen)
 
@@ -25,47 +28,84 @@ UnlockScreen.prototype.render = function () {
   const state = this.props
   const warning = state.warning
   return (
+    h('.flex-column', {
+      style: {
+        width: 'inherit',
+      },
+    }, [
+      h('.unlock-screen.flex-column.flex-center.flex-grow', [
 
-    h('.unlock-screen.flex-column.flex-center.flex-grow', [
+        h(Mascot, {
+          animationEventEmitter: this.animationEventEmitter,
+        }),
 
-      h(Mascot, {
-        animationEventEmitter: this.animationEventEmitter,
-      }),
+        h('h1', {
+          style: {
+            fontSize: '1.4em',
+            textTransform: 'uppercase',
+            color: '#7F8082',
+          },
+        }, 'MetaMask'),
 
-      h('h1', {
-        style: {
-          fontSize: '1.4em',
-          textTransform: 'uppercase',
-          color: '#7F8082',
-        },
-      }, 'MetaMask'),
+        h('input.large-input', {
+          type: 'password',
+          id: 'password-box',
+          placeholder: 'enter password',
+          style: {
+            background: 'white',
+          },
+          onKeyPress: this.onKeyPress.bind(this),
+          onInput: this.inputChanged.bind(this),
+        }),
 
-      h('input.large-input', {
-        type: 'password',
-        id: 'password-box',
-        placeholder: 'enter password',
-        style: {
+        h('.error', {
+          style: {
+            display: warning ? 'block' : 'none',
+            padding: '0 20px',
+            textAlign: 'center',
+          },
+        }, warning),
 
-        },
-        onKeyPress: this.onKeyPress.bind(this),
-        onInput: this.inputChanged.bind(this),
-      }),
+        h('button.primary.cursor-pointer', {
+          onClick: this.onSubmit.bind(this),
+          style: {
+            margin: 10,
+          },
+        }, 'Unlock'),
+      ]),
 
-      h('.error', {
-        style: {
-          display: warning ? 'block' : 'none',
-        },
-      }, warning),
+      h('.flex-row.flex-center.flex-grow', [
+        h('p.pointer', {
+          onClick: () => {
+            this.props.dispatch(actions.markPasswordForgotten())
+            if (environmentType() === 'popup') {
+              global.platform.openExtensionInBrowser()
+            }
+          },
+          style: {
+            fontSize: '0.8em',
+            color: 'rgb(247, 134, 28)',
+            textDecoration: 'underline',
+          },
+        }, 'Restore from seed phrase'),
+      ]),
 
-      h('button.primary.cursor-pointer', {
-        onClick: this.onSubmit.bind(this),
-        style: {
-          margin: 10,
-        },
-      }, 'Unlock'),
-
+      h('.flex-row.flex-center.flex-grow', [
+        h('p.pointer', {
+          onClick: () => {
+            this.props.dispatch(actions.setFeatureFlag('betaUI', false, 'OLD_UI_NOTIFICATION_MODAL'))
+              .then(() => this.props.dispatch(actions.setNetworkEndpoints(OLD_UI_NETWORK_TYPE)))
+          },
+          style: {
+            fontSize: '0.8em',
+            color: '#aeaeae',
+            textDecoration: 'underline',
+            marginTop: '32px',
+          },
+        }, 'Use classic interface'),
+      ]),
+      
     ])
-
   )
 }
 
@@ -102,8 +142,4 @@ UnlockScreen.prototype.inputChanged = function (event) {
     x: boundingRect.left + coordinates.left - element.scrollLeft,
     y: boundingRect.top + coordinates.top - element.scrollTop,
   })
-}
-
-UnlockScreen.prototype.emitAnim = function (name, a, b, c) {
-  this.animationEventEmitter.emit(name, a, b, c)
 }

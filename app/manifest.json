@@ -1,19 +1,36 @@
 {
-  "name": "__MSG_appName__",
+  "name": "MetaMask",
   "short_name": "Metamask",
-  "version": "2.5.0",
+  "version": "4.0.12",
   "manifest_version": 2,
-  "description": "__MSG_appDescription__",
+  "author": "https://metamask.io",
+  "description": "Ethereum Browser Extension",
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "windows": "Alt+Shift+M",
+        "mac": "Alt+Shift+M",
+        "chromeos": "Alt+Shift+M",
+        "linux": "Alt+Shift+M"
+      }
+    }
+  },
   "icons": {
     "16": "images/icon-16.png",
     "128": "images/icon-128.png"
+  },
+  "applications": {
+    "gecko": {
+      "id": "webextension@metamask.io"
+    }
   },
   "default_locale": "en",
   "background": {
     "scripts": [
       "scripts/chromereload.js",
       "scripts/background.js"
-    ]
+    ],
+    "persistent": true
   },
   "browser_action": {
     "default_icon": {
@@ -34,15 +51,15 @@
         "scripts/contentscript.js"
       ],
       "run_at": "document_start",
-      "all_frames": false
+      "all_frames": true
     }
   ],
   "permissions": [
-    "notifications",
     "storage",
-    "tabs",
-    "http://localhost:8545/"
-  ],
+    "clipboardWrite",
+    "http://localhost:8545/",
+    "https://*.infura.io/"
+    ],
   "web_accessible_resources": [
     "scripts/inpage.js"
   ],

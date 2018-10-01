@@ -1,41 +1,89 @@
+const abi = require('human-standard-token-abi')
+const getBuyEthUrl = require('../../app/scripts/lib/buy-eth-url')
+const { getTokenAddressFromTokenObject } = require('./util')
+const ethUtil = require('ethereumjs-util')
+
 var actions = {
+  _setBackgroundConnection: _setBackgroundConnection,
+
   GO_HOME: 'GO_HOME',
   goHome: goHome,
+  // modal state
+  MODAL_OPEN: 'UI_MODAL_OPEN',
+  MODAL_CLOSE: 'UI_MODAL_CLOSE',
+  showModal: showModal,
+  hideModal: hideModal,
+  // sidebar state
+  SIDEBAR_OPEN: 'UI_SIDEBAR_OPEN',
+  SIDEBAR_CLOSE: 'UI_SIDEBAR_CLOSE',
+  showSidebar: showSidebar,
+  hideSidebar: hideSidebar,
+  // network dropdown open
+  NETWORK_DROPDOWN_OPEN: 'UI_NETWORK_DROPDOWN_OPEN',
+  NETWORK_DROPDOWN_CLOSE: 'UI_NETWORK_DROPDOWN_CLOSE',
+  showNetworkDropdown: showNetworkDropdown,
+  hideNetworkDropdown: hideNetworkDropdown,
   // menu state
   getNetworkStatus: 'getNetworkStatus',
-
+  // transition state
+  TRANSITION_FORWARD: 'TRANSITION_FORWARD',
+  TRANSITION_BACKWARD: 'TRANSITION_BACKWARD',
+  transitionForward,
+  transitionBackward,
   // remote state
   UPDATE_METAMASK_STATE: 'UPDATE_METAMASK_STATE',
   updateMetamaskState: updateMetamaskState,
+  // notices
+  MARK_NOTICE_READ: 'MARK_NOTICE_READ',
+  markNoticeRead: markNoticeRead,
+  SHOW_NOTICE: 'SHOW_NOTICE',
+  showNotice: showNotice,
+  CLEAR_NOTICES: 'CLEAR_NOTICES',
+  clearNotices: clearNotices,
+  markAccountsFound,
   // intialize screen
-  AGREE_TO_DISCLAIMER: 'AGREE_TO_DISCLAIMER',
-  agreeToDisclaimer: agreeToDisclaimer,
   CREATE_NEW_VAULT_IN_PROGRESS: 'CREATE_NEW_VAULT_IN_PROGRESS',
   SHOW_CREATE_VAULT: 'SHOW_CREATE_VAULT',
   SHOW_RESTORE_VAULT: 'SHOW_RESTORE_VAULT',
+  FORGOT_PASSWORD: 'FORGOT_PASSWORD',
+  forgotPassword: forgotPassword,
+  markPasswordForgotten,
+  unMarkPasswordForgotten,
   SHOW_INIT_MENU: 'SHOW_INIT_MENU',
   SHOW_NEW_VAULT_SEED: 'SHOW_NEW_VAULT_SEED',
   SHOW_INFO_PAGE: 'SHOW_INFO_PAGE',
-  RECOVER_FROM_SEED: 'RECOVER_FROM_SEED',
-  CLEAR_SEED_WORD_CACHE: 'CLEAR_SEED_WORD_CACHE',
-  clearSeedWordCache: clearSeedWordCache,
-  recoverFromSeed: recoverFromSeed,
+  SHOW_IMPORT_PAGE: 'SHOW_IMPORT_PAGE',
+  SHOW_NEW_ACCOUNT_PAGE: 'SHOW_NEW_ACCOUNT_PAGE',
+  SET_NEW_ACCOUNT_FORM: 'SET_NEW_ACCOUNT_FORM',
   unlockMetamask: unlockMetamask,
   unlockFailed: unlockFailed,
+  unlockSucceeded,
   showCreateVault: showCreateVault,
   showRestoreVault: showRestoreVault,
   showInitializeMenu: showInitializeMenu,
-  createNewVault: createNewVault,
+  showImportPage,
+  showNewAccountPage,
+  setNewAccountForm,
+  createNewVaultAndKeychain: createNewVaultAndKeychain,
+  createNewVaultAndRestore: createNewVaultAndRestore,
   createNewVaultInProgress: createNewVaultInProgress,
+  addNewKeyring,
+  importNewAccount,
+  addNewAccount,
+  NEW_ACCOUNT_SCREEN: 'NEW_ACCOUNT_SCREEN',
+  navigateToNewAccountScreen,
+  resetAccount,
   showNewVaultSeed: showNewVaultSeed,
   showInfoPage: showInfoPage,
   // seed recovery actions
   REVEAL_SEED_CONFIRMATION: 'REVEAL_SEED_CONFIRMATION',
   revealSeedConfirmation: revealSeedConfirmation,
   requestRevealSeed: requestRevealSeed,
+
   // unlock screen
   UNLOCK_IN_PROGRESS: 'UNLOCK_IN_PROGRESS',
   UNLOCK_FAILED: 'UNLOCK_FAILED',
+  UNLOCK_SUCCEEDED: 'UNLOCK_SUCCEEDED',
   UNLOCK_METAMASK: 'UNLOCK_METAMASK',
   LOCK_METAMASK: 'LOCK_METAMASK',
   tryUnlockMetamask: tryUnlockMetamask,
@@ -43,27 +91,34 @@ var actions = {
   unlockInProgress: unlockInProgress,
   // error handling
   displayWarning: displayWarning,
-  showWarning: showWarning, // alias
   DISPLAY_WARNING: 'DISPLAY_WARNING',
   HIDE_WARNING: 'HIDE_WARNING',
   hideWarning: hideWarning,
   // accounts screen
   SET_SELECTED_ACCOUNT: 'SET_SELECTED_ACCOUNT',
+  SET_SELECTED_TOKEN: 'SET_SELECTED_TOKEN',
+  setSelectedToken,
   SHOW_ACCOUNT_DETAIL: 'SHOW_ACCOUNT_DETAIL',
   SHOW_ACCOUNTS_PAGE: 'SHOW_ACCOUNTS_PAGE',
   SHOW_CONF_TX_PAGE: 'SHOW_CONF_TX_PAGE',
   SHOW_CONF_MSG_PAGE: 'SHOW_CONF_MSG_PAGE',
-  REVEAL_ACCOUNT: 'REVEAL_ACCOUNT',
-  revealAccount: revealAccount,
+  SET_CURRENT_FIAT: 'SET_CURRENT_FIAT',
+  setCurrentCurrency: setCurrentCurrency,
+  setCurrentAccountTab,
   // account detail screen
   SHOW_SEND_PAGE: 'SHOW_SEND_PAGE',
   showSendPage: showSendPage,
+  SHOW_SEND_TOKEN_PAGE: 'SHOW_SEND_TOKEN_PAGE',
+  showSendTokenPage,
+  ADD_TO_ADDRESS_BOOK: 'ADD_TO_ADDRESS_BOOK',
+  addToAddressBook: addToAddressBook,
   REQUEST_ACCOUNT_EXPORT: 'REQUEST_ACCOUNT_EXPORT',
   requestExportAccount: requestExportAccount,
   EXPORT_ACCOUNT: 'EXPORT_ACCOUNT',
   exportAccount: exportAccount,
   SHOW_PRIVATE_KEY: 'SHOW_PRIVATE_KEY',
   showPrivateKey: showPrivateKey,
+  exportAccountComplete,
   SAVE_ACCOUNT_LABEL: 'SAVE_ACCOUNT_LABEL',
   saveAccountLabel: saveAccountLabel,
   // tx conf screen
@@ -71,48 +126,153 @@ var actions = {
   TRANSACTION_ERROR: 'TRANSACTION_ERROR',
   NEXT_TX: 'NEXT_TX',
   PREVIOUS_TX: 'PREV_TX',
-  setSelectedAddress: setSelectedAddress,
+  EDIT_TX: 'EDIT_TX',
   signMsg: signMsg,
   cancelMsg: cancelMsg,
+  signPersonalMsg,
+  cancelPersonalMsg,
+  signTypedMsg,
+  cancelTypedMsg,
   sendTx: sendTx,
   signTx: signTx,
+  signTokenTx: signTokenTx,
+  updateTransaction,
+  updateAndApproveTx,
   cancelTx: cancelTx,
   completedTx: completedTx,
   txError: txError,
   nextTx: nextTx,
+  editTx,
   previousTx: previousTx,
+  cancelAllTx: cancelAllTx,
   viewPendingTx: viewPendingTx,
   VIEW_PENDING_TX: 'VIEW_PENDING_TX',
+  updateTransactionParams,
+  UPDATE_TRANSACTION_PARAMS: 'UPDATE_TRANSACTION_PARAMS',
+  // send screen
+  estimateGas,
+  getGasPrice,
+  UPDATE_GAS_LIMIT: 'UPDATE_GAS_LIMIT',
+  UPDATE_GAS_PRICE: 'UPDATE_GAS_PRICE',
+  UPDATE_GAS_TOTAL: 'UPDATE_GAS_TOTAL',
+  UPDATE_SEND_FROM: 'UPDATE_SEND_FROM',
+  UPDATE_SEND_TOKEN_BALANCE: 'UPDATE_SEND_TOKEN_BALANCE',
+  UPDATE_SEND_TO: 'UPDATE_SEND_TO',
+  UPDATE_SEND_AMOUNT: 'UPDATE_SEND_AMOUNT',
+  UPDATE_SEND_MEMO: 'UPDATE_SEND_MEMO',
+  UPDATE_SEND_ERRORS: 'UPDATE_SEND_ERRORS',
+  UPDATE_MAX_MODE: 'UPDATE_MAX_MODE',
+  UPDATE_SEND: 'UPDATE_SEND',
+  CLEAR_SEND: 'CLEAR_SEND',
+  updateGasLimit,
+  updateGasPrice,
+  updateGasTotal,
+  updateSendTokenBalance,
+  updateSendFrom,
+  updateSendTo,
+  updateSendAmount,
+  updateSendMemo,
+  updateSendErrors,
+  setMaxModeTo,
+  updateSend,
+  clearSend,
+  setSelectedAddress,
   // app messages
+  confirmSeedWords: confirmSeedWords,
   showAccountDetail: showAccountDetail,
   BACK_TO_ACCOUNT_DETAIL: 'BACK_TO_ACCOUNT_DETAIL',
   backToAccountDetail: backToAccountDetail,
   showAccountsPage: showAccountsPage,
   showConfTxPage: showConfTxPage,
-  confirmSeedWords: confirmSeedWords,
   // config screen
   SHOW_CONFIG_PAGE: 'SHOW_CONFIG_PAGE',
   SET_RPC_TARGET: 'SET_RPC_TARGET',
+  SET_DEFAULT_RPC_TARGET: 'SET_DEFAULT_RPC_TARGET',
   SET_PROVIDER_TYPE: 'SET_PROVIDER_TYPE',
-  USE_ETHERSCAN_PROVIDER: 'USE_ETHERSCAN_PROVIDER',
-  useEtherscanProvider: useEtherscanProvider,
-  showConfigPage: showConfigPage,
+  showConfigPage,
+  SHOW_ADD_TOKEN_PAGE: 'SHOW_ADD_TOKEN_PAGE',
+  showAddTokenPage,
+  addToken,
+  addTokens,
+  removeToken,
+  updateTokens,
+  UPDATE_TOKENS: 'UPDATE_TOKENS',
   setRpcTarget: setRpcTarget,
   setProviderType: setProviderType,
-  // hacky - need a way to get a reference to account manager
-  _setAccountManager: _setAccountManager,
+  updateProviderType,
   // loading overlay
   SHOW_LOADING: 'SHOW_LOADING_INDICATION',
   HIDE_LOADING: 'HIDE_LOADING_INDICATION',
   showLoadingIndication: showLoadingIndication,
   hideLoadingIndication: hideLoadingIndication,
+  // buy Eth with coinbase
+  onboardingBuyEthView,
+  ONBOARDING_BUY_ETH_VIEW: 'ONBOARDING_BUY_ETH_VIEW',
+  BUY_ETH: 'BUY_ETH',
+  buyEth: buyEth,
+  buyEthView: buyEthView,
+  buyWithShapeShift,
+  BUY_ETH_VIEW: 'BUY_ETH_VIEW',
+  COINBASE_SUBVIEW: 'COINBASE_SUBVIEW',
+  coinBaseSubview: coinBaseSubview,
+  SHAPESHIFT_SUBVIEW: 'SHAPESHIFT_SUBVIEW',
+  shapeShiftSubview: shapeShiftSubview,
+  UPDATE_TOKEN_EXCHANGE_RATE: 'UPDATE_TOKEN_EXCHANGE_RATE',
+  updateTokenExchangeRate,
+  PAIR_UPDATE: 'PAIR_UPDATE',
+  pairUpdate: pairUpdate,
+  coinShiftRquest: coinShiftRquest,
+  SHOW_SUB_LOADING_INDICATION: 'SHOW_SUB_LOADING_INDICATION',
+  showSubLoadingIndication: showSubLoadingIndication,
+  HIDE_SUB_LOADING_INDICATION: 'HIDE_SUB_LOADING_INDICATION',
+  hideSubLoadingIndication: hideSubLoadingIndication,
+// QR STUFF:
+  SHOW_QR: 'SHOW_QR',
+  showQrView: showQrView,
+  reshowQrCode: reshowQrCode,
+  SHOW_QR_VIEW: 'SHOW_QR_VIEW',
+// FORGOT PASSWORD:
+  BACK_TO_INIT_MENU: 'BACK_TO_INIT_MENU',
+  goBackToInitView: goBackToInitView,
+  RECOVERY_IN_PROGRESS: 'RECOVERY_IN_PROGRESS',
+  BACK_TO_UNLOCK_VIEW: 'BACK_TO_UNLOCK_VIEW',
+  backToUnlockView: backToUnlockView,
+  // SHOWING KEYCHAIN
+  SHOW_NEW_KEYCHAIN: 'SHOW_NEW_KEYCHAIN',
+  showNewKeychain: showNewKeychain,
+
+  callBackgroundThenUpdate,
+  forceUpdateMetamaskState,
+
+  TOGGLE_ACCOUNT_MENU: 'TOGGLE_ACCOUNT_MENU',
+  toggleAccountMenu,
+
+  useEtherscanProvider,
+
+  SET_USE_BLOCKIE: 'SET_USE_BLOCKIE',
+  setUseBlockie,
+
+  // Feature Flags
+  setFeatureFlag,
+  updateFeatureFlags,
+  UPDATE_FEATURE_FLAGS: 'UPDATE_FEATURE_FLAGS',
+
+  setMouseUserState,
+  SET_MOUSE_USER_STATE: 'SET_MOUSE_USER_STATE',
+
+  // Network
+  setNetworkEndpoints,
+  updateNetworkEndpointType,
+  UPDATE_NETWORK_ENDPOINT_TYPE: 'UPDATE_NETWORK_ENDPOINT_TYPE',
+
+  retryTransaction,
 }
 
 module.exports = actions
 
-var _accountManager = null
-function _setAccountManager (accountManager) {
-  _accountManager = accountManager
+var background = null
+function _setBackgroundConnection (backgroundConnection) {
+  background = backgroundConnection
 }
 
 function goHome () {
@@ -125,26 +285,100 @@ function goHome () {
 
 function tryUnlockMetamask (password) {
   return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
     dispatch(actions.unlockInProgress())
-    _accountManager.submitPassword(password, (err, selectedAccount) => {
+    log.debug(`background.submitPassword`)
+    background.submitPassword(password, (err) => {
+      dispatch(actions.hideLoadingIndication())
       if (err) {
-        dispatch(actions.unlockFailed())
+        dispatch(actions.unlockFailed(err.message))
       } else {
-        dispatch(actions.unlockMetamask(selectedAccount))
+        dispatch(actions.unlockSucceeded())
+        dispatch(actions.transitionForward())
+        forceUpdateMetamaskState(dispatch)
       }
     })
   }
 }
 
-function createNewVault (password, entropy) {
+function transitionForward () {
+  return {
+    type: this.TRANSITION_FORWARD,
+  }
+}
+
+function transitionBackward () {
+  return {
+    type: this.TRANSITION_BACKWARD,
+  }
+}
+
+function confirmSeedWords () {
   return (dispatch) => {
-    dispatch(actions.createNewVaultInProgress())
-    _accountManager.createNewVault(password, entropy, (err, result) => {
-      if (err) {
-        return dispatch(actions.showWarning(err.message))
-      }
-      dispatch(actions.showNewVaultSeed(result))
+    dispatch(actions.showLoadingIndication())
+    log.debug(`background.clearSeedWordCache`)
+    return new Promise((resolve, reject) => {
+      background.clearSeedWordCache((err, account) => {
+        dispatch(actions.hideLoadingIndication())
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          reject(err)
+        }
+
+        log.info('Seed word cache cleared. ' + account)
+        dispatch(actions.showAccountsPage())
+        resolve(account)
+      })
     })
+  }
+}
+
+function createNewVaultAndRestore (password, seed) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    log.debug(`background.createNewVaultAndRestore`)
+
+    return new Promise((resolve, reject) => {
+      background.createNewVaultAndRestore(password, seed, (err) => {
+
+        dispatch(actions.hideLoadingIndication())
+
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+
+        dispatch(actions.showAccountsPage())
+        resolve()
+      })
+    })
+  }
+}
+
+function createNewVaultAndKeychain (password) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    log.debug(`background.createNewVaultAndKeychain`)
+
+    return new Promise((resolve, reject) => {
+      background.createNewVaultAndKeychain(password, (err) => {
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+        log.debug(`background.placeSeedWords`)
+        background.placeSeedWords((err) => {
+          if (err) {
+            dispatch(actions.displayWarning(err.message))
+            return reject(err)
+          }
+          dispatch(actions.hideLoadingIndication())
+          forceUpdateMetamaskState(dispatch)
+          resolve()
+        })
+      })
+    })
+
   }
 }
 
@@ -157,27 +391,100 @@ function revealSeedConfirmation () {
 function requestRevealSeed (password) {
   return (dispatch) => {
     dispatch(actions.showLoadingIndication())
-    _accountManager.tryPassword(password, (err, seed) => {
-      dispatch(actions.hideLoadingIndication())
-      if (err) return dispatch(actions.displayWarning(err.message))
-      _accountManager.recoverSeed((err, seed) => {
+    log.debug(`background.submitPassword`)
+    background.submitPassword(password, (err) => {
+      if (err) {
+        return dispatch(actions.displayWarning(err.message))
+      }
+      log.debug(`background.placeSeedWords`)
+      background.placeSeedWords((err, result) => {
         if (err) return dispatch(actions.displayWarning(err.message))
-        dispatch(actions.showNewVaultSeed(seed))
+        dispatch(actions.hideLoadingIndication())
+        dispatch(actions.showNewVaultSeed(result))
       })
     })
   }
 }
 
-function recoverFromSeed (password, seed) {
+function resetAccount () {
+    return (dispatch) => {
+        background.resetAccount((err, account) => {
+            dispatch(actions.hideLoadingIndication())
+            if (err) {
+                dispatch(actions.displayWarning(err.message))
+            }
+
+            log.info('Transaction history reset for ' + account)
+            dispatch(actions.showAccountsPage())
+        })
+    }
+}
+
+function addNewKeyring (type, opts) {
   return (dispatch) => {
-    // dispatch(actions.createNewVaultInProgress())
     dispatch(actions.showLoadingIndication())
-    _accountManager.recoverFromSeed(password, seed, (err, metamaskState) => {
+    log.debug(`background.addNewKeyring`)
+    background.addNewKeyring(type, opts, (err) => {
       dispatch(actions.hideLoadingIndication())
       if (err) return dispatch(actions.displayWarning(err.message))
+      dispatch(actions.showAccountsPage())
+    })
+  }
+}
 
-      var account = Object.keys(metamaskState.identities)[0]
-      dispatch(actions.unlockMetamask(account))
+function importNewAccount (strategy, args) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication('This may take a while, be patient.'))
+    log.debug(`background.importAccountWithStrategy`)
+    return new Promise((resolve, reject) => {
+      background.importAccountWithStrategy(strategy, args, (err) => {
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+        log.debug(`background.getState`)
+        background.getState((err, newState) => {
+          dispatch(actions.hideLoadingIndication())
+          if (err) {
+            dispatch(actions.displayWarning(err.message))
+            return reject(err)
+          }
+          dispatch(actions.updateMetamaskState(newState))
+          dispatch({
+            type: actions.SHOW_ACCOUNT_DETAIL,
+            value: newState.selectedAddress,
+          })
+          resolve(newState)
+        })
+      })
+    })
+  }
+}
+
+function navigateToNewAccountScreen () {
+  return {
+    type: this.NEW_ACCOUNT_SCREEN,
+  }
+}
+
+function addNewAccount () {
+  log.debug(`background.addNewAccount`)
+  return (dispatch, getState) => {
+    const oldIdentities = getState().metamask.identities
+    dispatch(actions.showLoadingIndication())
+    return new Promise((resolve, reject) => {
+      background.addNewAccount((err, { identities: newIdentities}) => {
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+        const newAccountAddress = Object.keys(newIdentities).find(address => !oldIdentities[address])
+
+        dispatch(actions.hideLoadingIndication())
+
+        forceUpdateMetamaskState(dispatch)
+        return resolve(newAccountAddress)
+      })
     })
   }
 }
@@ -188,33 +495,80 @@ function showInfoPage () {
   }
 }
 
-function setSelectedAddress (address) {
-  return (dispatch) => {
-    _accountManager.setSelectedAddress(address)
-  }
-}
-
-function revealAccount () {
+function setCurrentCurrency (currencyCode) {
   return (dispatch) => {
     dispatch(actions.showLoadingIndication())
-    _accountManager.revealAccount((err) => {
+    log.debug(`background.setCurrentCurrency`)
+    background.setCurrentCurrency(currencyCode, (err, data) => {
       dispatch(actions.hideLoadingIndication())
-      if (err) return dispatch(actions.displayWarning(err.message))
+      if (err) {
+        log.error(err.stack)
+        return dispatch(actions.displayWarning(err.message))
+      }
       dispatch({
-        type: actions.REVEAL_ACCOUNT,
+        type: actions.SET_CURRENT_FIAT,
+        value: {
+          currentCurrency: data.currentCurrency,
+          conversionRate: data.conversionRate,
+          conversionDate: data.conversionDate,
+        },
       })
     })
   }
 }
 
 function signMsg (msgData) {
+  log.debug('action - signMsg')
   return (dispatch) => {
     dispatch(actions.showLoadingIndication())
 
-    _accountManager.signMessage(msgData, (err) => {
+    log.debug(`actions calling background.signMessage`)
+    background.signMessage(msgData, (err, newState) => {
+      log.debug('signMessage called back')
+      dispatch(actions.updateMetamaskState(newState))
       dispatch(actions.hideLoadingIndication())
 
+      if (err) log.error(err)
       if (err) return dispatch(actions.displayWarning(err.message))
+
+      dispatch(actions.completedTx(msgData.metamaskId))
+    })
+  }
+}
+
+function signPersonalMsg (msgData) {
+  log.debug('action - signPersonalMsg')
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+
+    log.debug(`actions calling background.signPersonalMessage`)
+    background.signPersonalMessage(msgData, (err, newState) => {
+      log.debug('signPersonalMessage called back')
+      dispatch(actions.updateMetamaskState(newState))
+      dispatch(actions.hideLoadingIndication())
+
+      if (err) log.error(err)
+      if (err) return dispatch(actions.displayWarning(err.message))
+
+      dispatch(actions.completedTx(msgData.metamaskId))
+    })
+  }
+}
+
+function signTypedMsg (msgData) {
+  log.debug('action - signTypedMsg')
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+
+    log.debug(`actions calling background.signTypedMessage`)
+    background.signTypedMessage(msgData, (err, newState) => {
+      log.debug('signTypedMessage called back')
+      dispatch(actions.updateMetamaskState(newState))
+      dispatch(actions.hideLoadingIndication())
+
+      if (err) log.error(err)
+      if (err) return dispatch(actions.displayWarning(err.message))
+
       dispatch(actions.completedTx(msgData.metamaskId))
     })
   }
@@ -223,24 +577,187 @@ function signMsg (msgData) {
 function signTx (txData) {
   return (dispatch) => {
     dispatch(actions.showLoadingIndication())
-
-    web3.eth.sendTransaction(txData, (err, data) => {
+    global.ethQuery.sendTransaction(txData, (err, data) => {
       dispatch(actions.hideLoadingIndication())
-
       if (err) return dispatch(actions.displayWarning(err.message))
       dispatch(actions.hideWarning())
-      dispatch(actions.goHome())
+    })
+    dispatch(actions.showConfTxPage({}))
+  }
+}
+
+function estimateGas (params = {}) {
+  return (dispatch) => {
+    return new Promise((resolve, reject) => {
+      global.ethQuery.estimateGas(params, (err, data) => {
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+        dispatch(actions.hideWarning())
+        dispatch(actions.updateGasLimit(data))
+        return resolve(data)
+      })
     })
   }
 }
 
-function sendTx (txData) {
+function updateGasLimit (gasLimit) {
+  return {
+    type: actions.UPDATE_GAS_LIMIT,
+    value: gasLimit,
+  }
+}
+
+function getGasPrice () {
   return (dispatch) => {
-    _accountManager.approveTransaction(txData.id, (err) => {
+    return new Promise((resolve, reject) => {
+      global.ethQuery.gasPrice((err, data) => {
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+        dispatch(actions.hideWarning())
+        dispatch(actions.updateGasPrice(data))
+        return resolve(data)
+      })
+    })
+  }
+}
+
+function updateGasPrice (gasPrice) {
+  return {
+    type: actions.UPDATE_GAS_PRICE,
+    value: gasPrice,
+  }
+}
+
+function updateGasTotal (gasTotal) {
+  return {
+    type: actions.UPDATE_GAS_TOTAL,
+    value: gasTotal,
+  }
+}
+
+function updateSendTokenBalance (tokenBalance) {
+  return {
+    type: actions.UPDATE_SEND_TOKEN_BALANCE,
+    value: tokenBalance,
+  }
+}
+
+function updateSendFrom (from) {
+  return {
+    type: actions.UPDATE_SEND_FROM,
+    value: from,
+  }
+}
+
+function updateSendTo (to) {
+  return {
+    type: actions.UPDATE_SEND_TO,
+    value: to,
+  }
+}
+
+function updateSendAmount (amount) {
+  return {
+    type: actions.UPDATE_SEND_AMOUNT,
+    value: amount,
+  }
+}
+
+function updateSendMemo (memo) {
+  return {
+    type: actions.UPDATE_SEND_MEMO,
+    value: memo,
+  }
+}
+
+function updateSendErrors (error) {
+  return {
+    type: actions.UPDATE_SEND_ERRORS,
+    value: error,
+  }
+}
+
+function setMaxModeTo (bool) {
+  return {
+    type: actions.UPDATE_MAX_MODE,
+    value: bool,
+  }
+}
+
+function updateSend (newSend) {
+  return {
+    type: actions.UPDATE_SEND,
+    value: newSend,
+  }
+}
+
+function clearSend () {
+  return {
+    type: actions.CLEAR_SEND,
+  }
+}
+
+
+function sendTx (txData) {
+  log.info(`actions - sendTx: ${JSON.stringify(txData.txParams)}`)
+  return (dispatch) => {
+    log.debug(`actions calling background.approveTransaction`)
+    background.approveTransaction(txData.id, (err) => {
       if (err) {
-        alert(err.message)
         dispatch(actions.txError(err))
-        return console.error(err.message)
+        return log.error(err.message)
+      }
+      dispatch(actions.completedTx(txData.id))
+    })
+  }
+}
+
+function signTokenTx (tokenAddress, toAddress, amount, txData) {
+  return dispatch => {
+    dispatch(actions.showLoadingIndication())
+    const token = global.eth.contract(abi).at(tokenAddress)
+    token.transfer(toAddress, ethUtil.addHexPrefix(amount), txData)
+      .catch(err => {
+        dispatch(actions.hideLoadingIndication())
+        dispatch(actions.displayWarning(err.message))
+      })
+    dispatch(actions.showConfTxPage({}))
+  }
+}
+
+function updateTransaction (txData) {
+  log.info('actions: updateTx: ' + JSON.stringify(txData))
+  return (dispatch) => {
+    log.debug(`actions calling background.updateTx`)
+    background.updateTransaction(txData, (err) => {
+      dispatch(actions.hideLoadingIndication())
+      dispatch(actions.updateTransactionParams(txData.id, txData.txParams))
+      if (err) {
+        dispatch(actions.txError(err))
+        dispatch(actions.goHome())
+        return log.error(err.message)
+      }
+      dispatch(actions.showConfTxPage({ id: txData.id }))
+    })
+  }
+}
+
+function updateAndApproveTx (txData) {
+  log.info('actions: updateAndApproveTx: ' + JSON.stringify(txData))
+  return (dispatch) => {
+    log.debug(`actions calling background.updateAndApproveTx`)
+    background.updateAndApproveTransaction(txData, (err) => {
+      dispatch(actions.hideLoadingIndication())
+      dispatch(actions.updateTransactionParams(txData.id, txData.txParams))
+      dispatch(actions.clearSend())
+      if (err) {
+        dispatch(actions.txError(err))
+        dispatch(actions.goHome())
+        return log.error(err.message)
       }
       dispatch(actions.completedTx(txData.id))
     })
@@ -250,7 +767,15 @@ function sendTx (txData) {
 function completedTx (id) {
   return {
     type: actions.COMPLETED_TX,
+    value: id,
+  }
+}
+
+function updateTransactionParams (id, txParams) {
+  return {
+    type: actions.UPDATE_TRANSACTION_PARAMS,
     id,
+    value: txParams,
   }
 }
 
@@ -262,15 +787,43 @@ function txError (err) {
 }
 
 function cancelMsg (msgData) {
-  _accountManager.cancelMessage(msgData.id)
+  log.debug(`background.cancelMessage`)
+  background.cancelMessage(msgData.id)
   return actions.completedTx(msgData.id)
 }
 
-function cancelTx (txData) {
-  _accountManager.cancelTransaction(txData.id)
-  return actions.completedTx(txData.id)
+function cancelPersonalMsg (msgData) {
+  const id = msgData.id
+  background.cancelPersonalMessage(id)
+  return actions.completedTx(id)
 }
 
+function cancelTypedMsg (msgData) {
+  const id = msgData.id
+  background.cancelTypedMessage(id)
+  return actions.completedTx(id)
+}
+
+function cancelTx (txData) {
+  return (dispatch) => {
+    log.debug(`background.cancelTransaction`)
+    background.cancelTransaction(txData.id, () => {
+      dispatch(actions.clearSend())
+      dispatch(actions.completedTx(txData.id))
+    })
+  }
+}
+
+function cancelAllTx (txsData) {
+  return (dispatch) => {
+    txsData.forEach((txData, i) => {
+      background.cancelTransaction(txData.id, () => {
+        dispatch(actions.completedTx(txData.id))
+        i === txsData.length - 1 ? dispatch(actions.goHome()) : null
+      })
+    })
+  }
+}
 //
 // initialize screen
 //
@@ -287,25 +840,54 @@ function showRestoreVault () {
   }
 }
 
+function markPasswordForgotten () {
+  return (dispatch) => {
+    return background.markPasswordForgotten(() => {
+      dispatch(actions.hideLoadingIndication())
+      dispatch(actions.forgotPassword())
+      forceUpdateMetamaskState(dispatch)
+    })
+  }
+}
+
+function unMarkPasswordForgotten () {
+  return (dispatch) => {
+    return background.unMarkPasswordForgotten(() => {
+      dispatch(actions.forgotPassword())
+      forceUpdateMetamaskState(dispatch)
+    })
+  }
+}
+
+function forgotPassword () {
+  return {
+    type: actions.FORGOT_PASSWORD,
+  }
+}
+
 function showInitializeMenu () {
   return {
     type: actions.SHOW_INIT_MENU,
   }
 }
 
-function agreeToDisclaimer () {
-  return (dispatch) => {
-    dispatch(this.showLoadingIndication())
-    _accountManager.agreeToDisclaimer((err) => {
-      if (err) {
-        return dispatch(actions.showWarning(err.message))
-      }
+function showImportPage () {
+  return {
+    type: actions.SHOW_IMPORT_PAGE,
+  }
+}
 
-      dispatch(this.hideLoadingIndication())
-      dispatch({
-        type: this.AGREE_TO_DISCLAIMER,
-      })
-    })
+function showNewAccountPage (formToSelect) {
+  return {
+    type: actions.SHOW_NEW_ACCOUNT_PAGE,
+    formToSelect,
+  }
+}
+
+function setNewAccountForm (formToSelect) {
+  return {
+    type: actions.SET_NEW_ACCOUNT_FORM,
+    formToSelect,
   }
 }
 
@@ -322,6 +904,18 @@ function showNewVaultSeed (seed) {
   }
 }
 
+function backToUnlockView () {
+  return {
+    type: actions.BACK_TO_UNLOCK_VIEW,
+  }
+}
+
+function showNewKeychain () {
+  return {
+    type: actions.SHOW_NEW_KEYCHAIN,
+  }
+}
+
 //
 // unlock screen
 //
@@ -332,9 +926,17 @@ function unlockInProgress () {
   }
 }
 
-function unlockFailed () {
+function unlockFailed (message) {
   return {
     type: actions.UNLOCK_FAILED,
+    value: message,
+  }
+}
+
+function unlockSucceeded (message) {
+  return {
+    type: actions.UNLOCK_SUCCEEDED,
+    value: message,
   }
 }
 
@@ -352,17 +954,77 @@ function updateMetamaskState (newState) {
   }
 }
 
-function lockMetamask () {
-  return (dispatch) => {
-    _accountManager.setLocked((err) => {
-      dispatch(actions.hideLoadingIndication())
-      if (err) {
-        return dispatch(actions.showWarning(err.message))
+const backgroundSetLocked = () => {
+  return new Promise((resolve, reject) => {
+    background.setLocked(error => {
+      if (error) {
+        return reject(error)
       }
 
-      dispatch({
-        type: actions.LOCK_METAMASK,
+      resolve()
+    })
+  })
+}
+
+const updateMetamaskStateFromBackground = () => {
+  log.debug(`background.getState`)
+
+  return new Promise((resolve, reject) => {
+    background.getState((error, newState) => {
+      if (error) {
+        return reject(error)
+      }
+
+      resolve(newState)
+    })
+  })
+}
+
+function lockMetamask () {
+  log.debug(`background.setLocked`)
+
+  return dispatch => {
+    dispatch(actions.showLoadingIndication())
+
+    return backgroundSetLocked()
+      .then(() => updateMetamaskStateFromBackground())
+      .catch(error => {
+        dispatch(actions.displayWarning(error.message))
+        return Promise.reject(error)
       })
+      .then(newState => {
+        dispatch(actions.updateMetamaskState(newState))
+        dispatch(actions.hideLoadingIndication())
+        dispatch({ type: actions.LOCK_METAMASK })
+      })
+      .catch(() => {
+        dispatch(actions.hideLoadingIndication())
+        dispatch({ type: actions.LOCK_METAMASK })
+      })
+  }
+}
+
+function setCurrentAccountTab (newTabName) {
+  log.debug(`background.setCurrentAccountTab: ${newTabName}`)
+  return callBackgroundThenUpdateNoSpinner(background.setCurrentAccountTab, newTabName)
+}
+
+function setSelectedToken (tokenAddress) {
+  return {
+    type: actions.SET_SELECTED_TOKEN,
+    value: tokenAddress || null,
+  }
+}
+
+function setSelectedAddress (address) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    log.debug(`background.setSelectedAddress`)
+    background.setSelectedAddress(address, (err) => {
+      dispatch(actions.hideLoadingIndication())
+      if (err) {
+        return dispatch(actions.displayWarning(err.message))
+      }
     })
   }
 }
@@ -370,16 +1032,17 @@ function lockMetamask () {
 function showAccountDetail (address) {
   return (dispatch) => {
     dispatch(actions.showLoadingIndication())
-    _accountManager.setSelectedAddress(address, (err, address) => {
+    log.debug(`background.setSelectedAddress`)
+    background.setSelectedAddress(address, (err) => {
       dispatch(actions.hideLoadingIndication())
       if (err) {
-        return dispatch(actions.showWarning(err.message))
+        return dispatch(actions.displayWarning(err.message))
       }
-
       dispatch({
         type: actions.SHOW_ACCOUNT_DETAIL,
         value: address,
       })
+      dispatch(actions.setSelectedToken())
     })
   }
 }
@@ -390,27 +1053,6 @@ function backToAccountDetail (address) {
     value: address,
   }
 }
-function clearSeedWordCache (account) {
-  return {
-    type: actions.CLEAR_SEED_WORD_CACHE,
-    value: account,
-  }
-}
-
-function confirmSeedWords () {
-  return (dispatch) => {
-    dispatch(actions.showLoadingIndication())
-    _accountManager.clearSeedWordCache((err, account) => {
-      dispatch(actions.hideLoadingIndication())
-      if (err) {
-        return dispatch(actions.showWarning(err.message))
-      }
-
-      console.log('Seed word cache cleared. ' + account)
-      dispatch(actions.showAccountDetail(account))
-    })
-  }
-}
 
 function showAccountsPage () {
   return {
@@ -418,9 +1060,11 @@ function showAccountsPage () {
   }
 }
 
-function showConfTxPage () {
+function showConfTxPage ({transForward = true, id}) {
   return {
     type: actions.SHOW_CONF_TX_PAGE,
+    transForward,
+    id,
   }
 }
 
@@ -443,6 +1087,13 @@ function previousTx () {
   }
 }
 
+function editTx (txId) {
+  return {
+    type: actions.EDIT_TX,
+    value: txId,
+  }
+}
+
 function showConfigPage (transitionForward = true) {
   return {
     type: actions.SHOW_CONFIG_PAGE,
@@ -450,36 +1101,241 @@ function showConfigPage (transitionForward = true) {
   }
 }
 
+function showAddTokenPage (transitionForward = true) {
+  return {
+    type: actions.SHOW_ADD_TOKEN_PAGE,
+    value: transitionForward,
+  }
+}
+
+function addToken (address, symbol, decimals) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    return new Promise((resolve, reject) => {
+      background.addToken(address, symbol, decimals, (err, tokens) => {
+        dispatch(actions.hideLoadingIndication())
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          reject(err)
+        }
+        dispatch(actions.updateTokens(tokens))
+        resolve(tokens)
+      })
+    })
+  }
+}
+
+function removeToken (address) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    return new Promise((resolve, reject) => {
+      background.removeToken(address, (err, tokens) => {
+        dispatch(actions.hideLoadingIndication())
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          reject(err)
+        }
+        dispatch(actions.updateTokens(tokens))
+        resolve(tokens)
+      })
+    })
+  }
+}
+
+function addTokens (tokens) {
+  return dispatch => {
+    if (Array.isArray(tokens)) {
+      dispatch(actions.setSelectedToken(getTokenAddressFromTokenObject(tokens[0])))
+      return Promise.all(tokens.map(({ address, symbol, decimals }) => (
+        dispatch(addToken(address, symbol, decimals))
+      )))
+    } else {
+      dispatch(actions.setSelectedToken(getTokenAddressFromTokenObject(tokens)))
+      return Promise.all(
+        Object
+        .entries(tokens)
+        .map(([_, { address, symbol, decimals }]) => (
+          dispatch(addToken(address, symbol, decimals))
+        ))
+      )
+    }
+  }
+}
+
+function updateTokens (newTokens) {
+  return {
+    type: actions.UPDATE_TOKENS,
+    newTokens,
+  }
+}
+
+function goBackToInitView () {
+  return {
+    type: actions.BACK_TO_INIT_MENU,
+  }
+}
+
+//
+// notice
+//
+
+function markNoticeRead (notice) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    log.debug(`background.markNoticeRead`)
+    return new Promise((resolve, reject) => {
+      background.markNoticeRead(notice, (err, notice) => {
+        dispatch(actions.hideLoadingIndication())
+        if (err) {
+          dispatch(actions.displayWarning(err))
+          return reject(err)
+        }
+        if (notice) {
+          dispatch(actions.showNotice(notice))
+          resolve()
+        } else {
+          dispatch(actions.clearNotices())
+          resolve()
+        }
+      })
+    })
+  }
+}
+
+function showNotice (notice) {
+  return {
+    type: actions.SHOW_NOTICE,
+    value: notice,
+  }
+}
+
+function clearNotices () {
+  return {
+    type: actions.CLEAR_NOTICES,
+  }
+}
+
+function markAccountsFound () {
+  log.debug(`background.markAccountsFound`)
+  return callBackgroundThenUpdate(background.markAccountsFound)
+}
+
+function retryTransaction (txId) {
+  log.debug(`background.retryTransaction`)
+  return (dispatch) => {
+    background.retryTransaction(txId, (err, newState) => {
+      if (err) {
+        return dispatch(actions.displayWarning(err.message))
+      }
+      dispatch(actions.updateMetamaskState(newState))
+      dispatch(actions.viewPendingTx(txId))
+    })
+  }
+}
+
 //
 // config
 //
 
-function setRpcTarget (newRpc) {
-  _accountManager.setRpcTarget(newRpc)
-  return {
-    type: actions.SET_RPC_TARGET,
-    value: newRpc,
+function setProviderType (type) {
+  return (dispatch) => {
+    log.debug(`background.setProviderType`)
+    background.setProviderType(type, (err, result) => {
+      if (err) {
+        log.error(err)
+        return dispatch(self.displayWarning('Had a problem changing networks!'))
+      }
+      dispatch(actions.updateProviderType(type))
+      dispatch(actions.setSelectedToken())
+    })
+
   }
 }
 
-function setProviderType (type) {
-  _accountManager.setProviderType(type)
+function updateProviderType (type) {
   return {
     type: actions.SET_PROVIDER_TYPE,
     value: type,
   }
 }
 
+function setRpcTarget (newRpc) {
+  log.debug(`background.setRpcTarget: ${newRpc}`)
+  return (dispatch) => {
+    background.setCustomRpc(newRpc, (err, result) => {
+      if (err) {
+        log.error(err)
+        return dispatch(self.displayWarning('Had a problem changing networks!'))
+      }
+    })
+  }
+}
+
+// Calls the addressBookController to add a new address.
+function addToAddressBook (recipient, nickname = '') {
+  log.debug(`background.addToAddressBook`)
+  return (dispatch) => {
+    background.setAddressBook(recipient, nickname, (err, result) => {
+      if (err) {
+        log.error(err)
+        return dispatch(self.displayWarning('Address book failed to update'))
+      }
+    })
+  }
+}
+
 function useEtherscanProvider () {
-  _accountManager.useEtherscanProvider()
+  log.debug(`background.useEtherscanProvider`)
+  background.useEtherscanProvider()
   return {
     type: actions.USE_ETHERSCAN_PROVIDER,
   }
 }
 
-function showLoadingIndication () {
+function showNetworkDropdown () {
+  return {
+    type: actions.NETWORK_DROPDOWN_OPEN,
+  }
+}
+
+function hideNetworkDropdown () {
+  return {
+    type: actions.NETWORK_DROPDOWN_CLOSE,
+  }
+}
+
+
+function showModal (payload) {
+  return {
+    type: actions.MODAL_OPEN,
+    payload,
+  }
+}
+
+function hideModal (payload) {
+  return {
+    type: actions.MODAL_CLOSE,
+    payload,
+  }
+}
+
+function showSidebar () {
+  return {
+    type: actions.SIDEBAR_OPEN,
+  }
+}
+
+function hideSidebar () {
+  return {
+    type: actions.SIDEBAR_CLOSE,
+  }
+}
+
+
+function showLoadingIndication (message) {
   return {
     type: actions.SHOW_LOADING,
+    value: message,
   }
 }
 
@@ -489,8 +1345,16 @@ function hideLoadingIndication () {
   }
 }
 
-function showWarning (text) {
-  return this.displayWarning(text)
+function showSubLoadingIndication () {
+  return {
+    type: actions.SHOW_SUB_LOADING_INDICATION,
+  }
+}
+
+function hideSubLoadingIndication () {
+  return {
+    type: actions.HIDE_SUB_LOADING_INDICATION,
+  }
 }
 
 function displayWarning (text) {
@@ -512,22 +1376,44 @@ function requestExportAccount () {
   }
 }
 
-function exportAccount (address) {
+function exportAccount (password, address) {
   var self = this
 
   return function (dispatch) {
     dispatch(self.showLoadingIndication())
 
-    _accountManager.exportAccount(address, function (err, result) {
-      dispatch(self.hideLoadingIndication())
+    log.debug(`background.submitPassword`)
+    return new Promise((resolve, reject) => {
+      background.submitPassword(password, function (err) {
+        if (err) {
+          log.error('Error in submiting password.')
+          dispatch(self.hideLoadingIndication())
+          dispatch(self.displayWarning('Incorrect Password.'))
+          return reject(err)
+        }
+        log.debug(`background.exportAccount`)
+        return background.exportAccount(address, function (err, result) {
+          dispatch(self.hideLoadingIndication())
 
-      if (err) {
-        console.error(err)
-        return dispatch(self.displayWarning('Had a problem exporting the account.'))
-      }
+          if (err) {
+            log.error(err)
+            dispatch(self.displayWarning('Had a problem exporting the account.'))
+            return reject(err)
+          }
 
-      dispatch(self.showPrivateKey(result))
+          // dispatch(self.exportAccountComplete())
+          dispatch(self.showPrivateKey(result))
+
+          return resolve(result)
+        })
+      })
     })
+  }
+}
+
+function exportAccountComplete () {
+  return {
+    type: actions.EXPORT_ACCOUNT,
   }
 }
 
@@ -541,14 +1427,23 @@ function showPrivateKey (key) {
 function saveAccountLabel (account, label) {
   return (dispatch) => {
     dispatch(actions.showLoadingIndication())
-    _accountManager.saveAccountLabel(account, label, (err) => {
-      dispatch(actions.hideLoadingIndication())
-      if (err) {
-        return dispatch(actions.showWarning(err.message))
-      }
-      dispatch({
-        type: actions.SAVE_ACCOUNT_LABEL,
-        value: { account, label },
+    log.debug(`background.saveAccountLabel`)
+
+    return new Promise((resolve, reject) => {
+      background.saveAccountLabel(account, label, (err) => {
+        dispatch(actions.hideLoadingIndication())
+
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          reject(err)
+        }
+
+        dispatch({
+          type: actions.SAVE_ACCOUNT_LABEL,
+          value: { account, label },
+        })
+
+        resolve(account)
       })
     })
   }
@@ -557,5 +1452,307 @@ function saveAccountLabel (account, label) {
 function showSendPage () {
   return {
     type: actions.SHOW_SEND_PAGE,
+  }
+}
+
+function showSendTokenPage () {
+  return {
+    type: actions.SHOW_SEND_TOKEN_PAGE,
+  }
+}
+
+function buyEth (opts) {
+  return (dispatch) => {
+    const url = getBuyEthUrl(opts)
+    global.platform.openWindow({ url })
+    dispatch({
+      type: actions.BUY_ETH,
+    })
+  }
+}
+
+function onboardingBuyEthView (address) {
+  return {
+    type: actions.ONBOARDING_BUY_ETH_VIEW,
+    value: address,
+  }
+}
+
+function buyEthView (address) {
+  return {
+    type: actions.BUY_ETH_VIEW,
+    value: address,
+  }
+}
+
+function coinBaseSubview () {
+  return {
+    type: actions.COINBASE_SUBVIEW,
+  }
+}
+
+function pairUpdate (coin) {
+  return (dispatch) => {
+    dispatch(actions.showSubLoadingIndication())
+    dispatch(actions.hideWarning())
+    shapeShiftRequest('marketinfo', {pair: `${coin.toLowerCase()}_eth`}, (mktResponse) => {
+      dispatch(actions.hideSubLoadingIndication())
+      dispatch({
+        type: actions.PAIR_UPDATE,
+        value: {
+          marketinfo: mktResponse,
+        },
+      })
+    })
+  }
+}
+
+function shapeShiftSubview (network) {
+  var pair = 'btc_eth'
+  return (dispatch) => {
+    dispatch(actions.showSubLoadingIndication())
+    shapeShiftRequest('marketinfo', {pair}, (mktResponse) => {
+      shapeShiftRequest('getcoins', {}, (response) => {
+        dispatch(actions.hideSubLoadingIndication())
+        if (mktResponse.error) return dispatch(actions.displayWarning(mktResponse.error))
+        dispatch({
+          type: actions.SHAPESHIFT_SUBVIEW,
+          value: {
+            marketinfo: mktResponse,
+            coinOptions: response,
+          },
+        })
+      })
+    })
+  }
+}
+
+function coinShiftRquest (data, marketData) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    shapeShiftRequest('shift', { method: 'POST', data}, (response) => {
+      dispatch(actions.hideLoadingIndication())
+      if (response.error) return dispatch(actions.displayWarning(response.error))
+      var message = `
+        Deposit your ${response.depositType} to the address below:`
+      log.debug(`background.createShapeShiftTx`)
+      background.createShapeShiftTx(response.deposit, response.depositType)
+      dispatch(actions.showQrView(response.deposit, [message].concat(marketData)))
+    })
+  }
+}
+
+function buyWithShapeShift (data) {
+  return dispatch => new Promise((resolve, reject) => {
+    shapeShiftRequest('shift', { method: 'POST', data}, (response) => {
+      if (response.error) {
+        return reject(response.error)
+      }
+      background.createShapeShiftTx(response.deposit, response.depositType)
+      return resolve(response)
+    })
+  })
+}
+
+function showQrView (data, message) {
+  return {
+    type: actions.SHOW_QR_VIEW,
+    value: {
+      message: message,
+      data: data,
+    },
+  }
+}
+function reshowQrCode (data, coin) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    shapeShiftRequest('marketinfo', {pair: `${coin.toLowerCase()}_eth`}, (mktResponse) => {
+      if (mktResponse.error) return dispatch(actions.displayWarning(mktResponse.error))
+
+      var message = [
+        `Deposit your ${coin} to the address below:`,
+        `Deposit Limit: ${mktResponse.limit}`,
+        `Deposit Minimum:${mktResponse.minimum}`,
+      ]
+
+      dispatch(actions.hideLoadingIndication())
+      return dispatch(actions.showQrView(data, message))
+      // return dispatch(actions.showModal({
+      //   name: 'SHAPESHIFT_DEPOSIT_TX',
+      //   Qr: { data, message },
+      // }))
+    })
+  }
+}
+
+function shapeShiftRequest (query, options, cb) {
+  var queryResponse, method
+  !options ? options = {} : null
+  options.method ? method = options.method : method = 'GET'
+
+  var requestListner = function (request) {
+    try {
+      queryResponse = JSON.parse(this.responseText)
+      cb ? cb(queryResponse) : null
+      return queryResponse
+    } catch (e) {
+      cb ? cb({error: e}) : null
+      return e
+    }
+  }
+
+  var shapShiftReq = new XMLHttpRequest()
+  shapShiftReq.addEventListener('load', requestListner)
+  shapShiftReq.open(method, `https://shapeshift.io/${query}/${options.pair ? options.pair : ''}`, true)
+
+  if (options.method === 'POST') {
+    var jsonObj = JSON.stringify(options.data)
+    shapShiftReq.setRequestHeader('Content-Type', 'application/json')
+    return shapShiftReq.send(jsonObj)
+  } else {
+    return shapShiftReq.send()
+  }
+}
+
+function updateTokenExchangeRate (token = '') {
+  const pair = `${token.toLowerCase()}_eth`
+
+  return dispatch => {
+    if (!token) {
+      return
+    }
+
+    shapeShiftRequest('marketinfo', { pair }, marketinfo => {
+      if (!marketinfo.error) {
+        dispatch({
+          type: actions.UPDATE_TOKEN_EXCHANGE_RATE,
+          payload: {
+            pair,
+            marketinfo,
+          },
+        })
+      }
+    })
+  }
+}
+
+function setFeatureFlag (feature, activated, notificationType) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    return new Promise((resolve, reject) => {
+      background.setFeatureFlag(feature, activated, (err, updatedFeatureFlags) => {
+        dispatch(actions.hideLoadingIndication())
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+        dispatch(actions.updateFeatureFlags(updatedFeatureFlags))
+        notificationType && dispatch(actions.showModal({ name: notificationType }))
+        resolve(updatedFeatureFlags)
+      })
+    })
+  }
+}
+
+function updateFeatureFlags (updatedFeatureFlags) {
+  return {
+    type: actions.UPDATE_FEATURE_FLAGS,
+    value: updatedFeatureFlags,
+  }
+}
+
+function setMouseUserState (isMouseUser) {
+  return {
+    type: actions.SET_MOUSE_USER_STATE,
+    value: isMouseUser,
+  }
+}
+
+// Call Background Then Update
+//
+// A function generator for a common pattern wherein:
+// We show loading indication.
+// We call a background method.
+// We hide loading indication.
+// If it errored, we show a warning.
+// If it didn't, we update the state.
+function callBackgroundThenUpdateNoSpinner (method, ...args) {
+  return (dispatch) => {
+    method.call(background, ...args, (err) => {
+      if (err) {
+        return dispatch(actions.displayWarning(err.message))
+      }
+      forceUpdateMetamaskState(dispatch)
+    })
+  }
+}
+
+function callBackgroundThenUpdate (method, ...args) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    method.call(background, ...args, (err) => {
+      dispatch(actions.hideLoadingIndication())
+      if (err) {
+        return dispatch(actions.displayWarning(err.message))
+      }
+      forceUpdateMetamaskState(dispatch)
+    })
+  }
+}
+
+function forceUpdateMetamaskState (dispatch) {
+  log.debug(`background.getState`)
+  background.getState((err, newState) => {
+    if (err) {
+      return dispatch(actions.displayWarning(err.message))
+    }
+    dispatch(actions.updateMetamaskState(newState))
+  })
+}
+
+function toggleAccountMenu () {
+  return {
+    type: actions.TOGGLE_ACCOUNT_MENU,
+  }
+}
+
+function setUseBlockie (val) {
+  return (dispatch) => {
+    dispatch(actions.showLoadingIndication())
+    log.debug(`background.setUseBlockie`)
+    background.setUseBlockie(val, (err) => {
+      dispatch(actions.hideLoadingIndication())
+      if (err) {
+        return dispatch(actions.displayWarning(err.message))
+      }
+    })
+    dispatch({
+      type: actions.SET_USE_BLOCKIE,
+      value: val,
+    })
+  }
+}
+
+function setNetworkEndpoints (networkEndpointType) {
+  return dispatch => {
+    log.debug('background.setNetworkEndpoints')
+    return new Promise((resolve, reject) => {
+      background.setNetworkEndpoints(networkEndpointType, err => {
+        if (err) {
+          dispatch(actions.displayWarning(err.message))
+          return reject(err)
+        }
+
+        dispatch(actions.updateNetworkEndpointType(networkEndpointType))
+        resolve(networkEndpointType)
+      })
+    })
+  }
+}
+
+function updateNetworkEndpointType (networkEndpointType) {
+  return {
+    type: actions.UPDATE_NETWORK_ENDPOINT_TYPE,
+    value: networkEndpointType,
   }
 }

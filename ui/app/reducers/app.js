@@ -4,22 +4,26 @@ const txHelper = require('../../lib/tx-helper')
 
 module.exports = reduceApp
 
+
 function reduceApp (state, action) {
+  log.debug('App Reducer got ' + action.type)
   // clone and defaults
-  const selectedAccount = state.metamask.selectedAccount
-  const pendingTxs = hasPendingTxs(state)
+  const selectedAddress = state.metamask.selectedAddress
+  const hasUnconfActions = checkUnconfActions(state)
   let name = 'accounts'
-  if (selectedAccount) {
+  if (selectedAddress) {
     name = 'accountDetail'
   }
-  if (pendingTxs) {
+
+  if (hasUnconfActions) {
+    log.debug('pending txs detected, defaulting to conf-tx view.')
     name = 'confTx'
   }
 
   var defaultView = {
     name,
     detailView: null,
-    context: selectedAccount,
+    context: selectedAddress,
   }
 
   // confirm seed words
@@ -29,21 +33,91 @@ function reduceApp (state, action) {
     seedWords,
   }
 
+  // default state
   var appState = extend({
+    shouldClose: false,
     menuOpen: false,
+    modal: {
+      open: false,
+      modalState: {
+        name: null,
+      },
+      previousModalState: {
+        name: null,
+      },
+    },
+    sidebarOpen: false,
+    networkDropdownOpen: false,
     currentView: seedWords ? seedConfView : defaultView,
     accountDetail: {
       subview: 'transactions',
     },
-    currentDomain: 'example.com',
-    transForward: true, // Used to render transition direction
-    isLoading: false,   // Used to display loading indicator
-    warning: null,      // Used to display error text
+    // Used to render transition direction
+    transForward: true,
+    // Used to display loading indicator
+    isLoading: false,
+    // Used to display error text
+    warning: null,
+    buyView: {},
+    isMouseUser: false,
   }, state.appState)
 
   switch (action.type) {
+    // dropdown methods
+    case actions.NETWORK_DROPDOWN_OPEN:
+      return extend(appState, {
+        networkDropdownOpen: true,
+      })
 
-  // intialize
+    case actions.NETWORK_DROPDOWN_CLOSE:
+      return extend(appState, {
+        networkDropdownOpen: false,
+      })
+
+    // sidebar methods
+    case actions.SIDEBAR_OPEN:
+      return extend(appState, {
+        sidebarOpen: true,
+      })
+
+    case actions.SIDEBAR_CLOSE:
+      return extend(appState, {
+        sidebarOpen: false,
+      })
+
+    // modal methods:
+    case actions.MODAL_OPEN:
+      return extend(appState, {
+        modal: Object.assign(
+          state.appState.modal,
+          { open: true },
+          { modalState: action.payload },
+          { previousModalState: appState.modal.modalState},
+        ),
+      })
+
+    case actions.MODAL_CLOSE:
+      return extend(appState, {
+        modal: Object.assign(
+          state.appState.modal,
+          { open: false },
+          { modalState: { name: null } },
+          { previousModalState: appState.modal.modalState},
+        ),
+      })
+
+    // transition methods
+    case actions.TRANSITION_FORWARD:
+      return extend(appState, {
+        transForward: true,
+      })
+
+    case actions.TRANSITION_BACKWARD:
+      return extend(appState, {
+        transForward: false,
+      })
+
+    // intialize
 
     case actions.SHOW_CREATE_VAULT:
       return extend(appState, {
@@ -60,6 +134,16 @@ function reduceApp (state, action) {
           name: 'restoreVault',
         },
         transForward: true,
+        forgottenPassword: true,
+      })
+
+    case actions.FORGOT_PASSWORD:
+      return extend(appState, {
+        currentView: {
+          name: 'restoreVault',
+        },
+        transForward: false,
+        forgottenPassword: true,
       })
 
     case actions.SHOW_INIT_MENU:
@@ -77,6 +161,42 @@ function reduceApp (state, action) {
         transForward: action.value,
       })
 
+    case actions.SHOW_ADD_TOKEN_PAGE:
+      return extend(appState, {
+        currentView: {
+          name: 'add-token',
+          context: appState.currentView.context,
+        },
+        transForward: action.value,
+      })
+
+    case actions.SHOW_IMPORT_PAGE:
+      return extend(appState, {
+        currentView: {
+          name: 'import-menu',
+        },
+        transForward: true,
+        warning: null,
+      })
+
+    case actions.SHOW_NEW_ACCOUNT_PAGE:
+      return extend(appState, {
+        currentView: {
+          name: 'new-account-page',
+          context: action.formToSelect,
+        },
+        transForward: true,
+        warning: null,
+      })
+
+    case actions.SET_NEW_ACCOUNT_FORM:
+      return extend(appState, {
+        currentView: {
+          name: appState.currentView.name,
+          context: action.formToSelect,
+        },
+      })
+
     case actions.SHOW_INFO_PAGE:
       return extend(appState, {
         currentView: {
@@ -86,7 +206,7 @@ function reduceApp (state, action) {
         transForward: true,
       })
 
-    case actions.CREATE_NEW_VAULT_IN_PROGRESS:
+  case actions.CREATE_NEW_VAULT_IN_PROGRESS:
       return extend(appState, {
         currentView: {
           name: 'createVault',
@@ -106,6 +226,15 @@ function reduceApp (state, action) {
         isLoading: false,
       })
 
+    case actions.NEW_ACCOUNT_SCREEN:
+      return extend(appState, {
+        currentView: {
+          name: 'new-account',
+          context: appState.currentView.context,
+        },
+        transForward: true,
+      })
+
     case actions.SHOW_SEND_PAGE:
       return extend(appState, {
         currentView: {
@@ -116,10 +245,30 @@ function reduceApp (state, action) {
         warning: null,
       })
 
+    case actions.SHOW_SEND_TOKEN_PAGE:
+      return extend(appState, {
+        currentView: {
+          name: 'sendToken',
+          context: appState.currentView.context,
+        },
+        transForward: true,
+        warning: null,
+      })
+
+    case actions.SHOW_NEW_KEYCHAIN:
+      return extend(appState, {
+        currentView: {
+          name: 'newKeychain',
+          context: appState.currentView.context,
+        },
+        transForward: true,
+      })
+
   // unlock
 
     case actions.UNLOCK_METAMASK:
       return extend(appState, {
+        forgottenPassword: appState.forgottenPassword ? !appState.forgottenPassword : null,
         detailView: {},
         transForward: true,
         isLoading: false,
@@ -133,6 +282,25 @@ function reduceApp (state, action) {
         warning: null,
       })
 
+    case actions.BACK_TO_INIT_MENU:
+      return extend(appState, {
+        warning: null,
+        transForward: false,
+        forgottenPassword: true,
+        currentView: {
+          name: 'InitMenu',
+        },
+      })
+
+    case actions.BACK_TO_UNLOCK_VIEW:
+      return extend(appState, {
+        warning: null,
+        transForward: true,
+        forgottenPassword: false,
+        currentView: {
+          name: 'UnlockScreen',
+        },
+      })
   // reveal seed words
 
     case actions.REVEAL_SEED_CONFIRMATION:
@@ -167,6 +335,7 @@ function reduceApp (state, action) {
 
     case actions.SHOW_ACCOUNT_DETAIL:
       return extend(appState, {
+        forgottenPassword: appState.forgottenPassword ? !appState.forgottenPassword : null,
         currentView: {
           name: 'accountDetail',
           context: action.value,
@@ -203,6 +372,13 @@ function reduceApp (state, action) {
         isLoading: false,
         warning: null,
         scrollToBottom: false,
+        forgottenPassword: false,
+      })
+
+    case actions.SHOW_NOTICE:
+      return extend(appState, {
+        transForward: true,
+        isLoading: false,
       })
 
     case actions.REVEAL_ACCOUNT:
@@ -214,30 +390,32 @@ function reduceApp (state, action) {
       return extend(appState, {
         currentView: {
           name: 'confTx',
-          context: 0,
+          context: action.id ? indexForPending(state, action.id) : 0,
         },
-        transForward: true,
+        transForward: action.transForward,
         warning: null,
+        isLoading: false,
       })
 
     case actions.SHOW_CONF_MSG_PAGE:
       return extend(appState, {
         currentView: {
-          name: 'confTx',
+          name: hasUnconfActions ? 'confTx' : 'account-detail',
           context: 0,
         },
         transForward: true,
         warning: null,
+        isLoading: false,
       })
 
     case actions.COMPLETED_TX:
-      var unconfTxs = state.metamask.unconfTxs
-      var unconfMsgs = state.metamask.unconfMsgs
+      log.debug('reducing COMPLETED_TX for tx ' + action.value)
+      const otherUnconfActions = getUnconfActionList(state)
+        .filter(tx => tx.id !== action.value)
+      const hasOtherUnconfActions = otherUnconfActions.length > 0
 
-      var unconfTxList = txHelper(unconfTxs, unconfMsgs)
-    .filter(tx => tx !== tx.id)
-
-      if (unconfTxList && unconfTxList.length > 0) {
+      if (hasOtherUnconfActions) {
+        log.debug('reducer detected txs - rendering confTx view')
         return extend(appState, {
           transForward: false,
           currentView: {
@@ -247,7 +425,10 @@ function reduceApp (state, action) {
           warning: null,
         })
       } else {
+        log.debug('attempting to close popup')
         return extend(appState, {
+          // indicate notification should close
+          shouldClose: true,
           transForward: false,
           warning: null,
           currentView: {
@@ -301,12 +482,18 @@ function reduceApp (state, action) {
 
     case actions.UNLOCK_FAILED:
       return extend(appState, {
-        warning: 'Incorrect password. Try again.',
+        warning: action.value || 'Incorrect password. Try again.',
+      })
+
+    case actions.UNLOCK_SUCCEEDED:
+      return extend(appState, {
+        warning: '',
       })
 
     case actions.SHOW_LOADING:
       return extend(appState, {
         isLoading: true,
+        loadingMessage: action.value,
       })
 
     case actions.HIDE_LOADING:
@@ -314,6 +501,15 @@ function reduceApp (state, action) {
         isLoading: false,
       })
 
+    case actions.SHOW_SUB_LOADING_INDICATION:
+      return extend(appState, {
+        isSubLoading: true,
+      })
+
+    case actions.HIDE_SUB_LOADING_INDICATION:
+      return extend(appState, {
+        isSubLoading: false,
+      })
     case actions.CLEAR_SEED_WORD_CACHE:
       return extend(appState, {
         transForward: true,
@@ -329,6 +525,7 @@ function reduceApp (state, action) {
     case actions.DISPLAY_WARNING:
       return extend(appState, {
         warning: action.value,
+        isLoading: false,
       })
 
     case actions.HIDE_WARNING:
@@ -366,27 +563,134 @@ function reduceApp (state, action) {
         },
       })
 
+    case actions.BUY_ETH_VIEW:
+      return extend(appState, {
+        transForward: true,
+        currentView: {
+          name: 'buyEth',
+          context: appState.currentView.name,
+        },
+        identity: state.metamask.identities[action.value],
+        buyView: {
+          subview: 'Coinbase',
+          amount: '15.00',
+          buyAddress: action.value,
+          formView: {
+            coinbase: true,
+            shapeshift: false,
+          },
+        },
+      })
+
+    case actions.ONBOARDING_BUY_ETH_VIEW:
+      return extend(appState, {
+        transForward: true,
+        currentView: {
+          name: 'onboardingBuyEth',
+          context: appState.currentView.name,
+        },
+        identity: state.metamask.identities[action.value],
+      })
+
+    case actions.COINBASE_SUBVIEW:
+      return extend(appState, {
+        buyView: {
+          subview: 'Coinbase',
+          formView: {
+            coinbase: true,
+            shapeshift: false,
+          },
+          buyAddress: appState.buyView.buyAddress,
+          amount: appState.buyView.amount,
+        },
+      })
+
+    case actions.SHAPESHIFT_SUBVIEW:
+      return extend(appState, {
+        buyView: {
+          subview: 'ShapeShift',
+          formView: {
+            coinbase: false,
+            shapeshift: true,
+            marketinfo: action.value.marketinfo,
+            coinOptions: action.value.coinOptions,
+          },
+          buyAddress: action.value.buyAddress || appState.buyView.buyAddress,
+          amount: appState.buyView.amount || 0,
+        },
+      })
+
+    case actions.PAIR_UPDATE:
+      return extend(appState, {
+        buyView: {
+          subview: 'ShapeShift',
+          formView: {
+            coinbase: false,
+            shapeshift: true,
+            marketinfo: action.value.marketinfo,
+            coinOptions: appState.buyView.formView.coinOptions,
+          },
+          buyAddress: appState.buyView.buyAddress,
+          amount: appState.buyView.amount,
+          warning: null,
+        },
+      })
+
+    case actions.SHOW_QR:
+      return extend(appState, {
+        qrRequested: true,
+        transForward: true,
+
+        Qr: {
+          message: action.value.message,
+          data: action.value.data,
+        },
+      })
+
+    case actions.SHOW_QR_VIEW:
+      return extend(appState, {
+        currentView: {
+          name: 'qr',
+          context: appState.currentView.context,
+        },
+        transForward: true,
+        Qr: {
+          message: action.value.message,
+          data: action.value.data,
+        },
+      })
+
+    case actions.SET_MOUSE_USER_STATE:
+      return extend(appState, {
+        isMouseUser: action.value,
+      })
+
     default:
       return appState
   }
 }
 
-function hasPendingTxs (state) {
-  var unconfTxs = state.metamask.unconfTxs
-  var unconfMsgs = state.metamask.unconfMsgs
-  var unconfTxList = txHelper(unconfTxs, unconfMsgs)
-  return unconfTxList.length > 0
+function checkUnconfActions (state) {
+  const unconfActionList = getUnconfActionList(state)
+  const hasUnconfActions = unconfActionList.length > 0
+  return hasUnconfActions
+}
+
+function getUnconfActionList (state) {
+  const { unapprovedTxs, unapprovedMsgs,
+    unapprovedPersonalMsgs, unapprovedTypedMessages, network } = state.metamask
+
+  const unconfActionList = txHelper(unapprovedTxs, unapprovedMsgs, unapprovedPersonalMsgs, unapprovedTypedMessages, network)
+  return unconfActionList
 }
 
 function indexForPending (state, txId) {
-  var unconfTxs = state.metamask.unconfTxs
-  var unconfMsgs = state.metamask.unconfMsgs
-  var unconfTxList = txHelper(unconfTxs, unconfMsgs)
-  let idx
-  unconfTxList.forEach((tx, i) => {
-    if (tx.id === txId) {
-      idx = i
-    }
-  })
-  return idx
+  const unconfTxList = getUnconfActionList(state)
+  const match = unconfTxList.find((tx) => tx.id === txId)
+  const index = unconfTxList.indexOf(match)
+  return index
 }
+
+// function indexForLastPending (state) {
+//   return getUnconfActionList(state).length
+// }

@@ -16,16 +16,15 @@ function InfoScreen () {
 }
 
 InfoScreen.prototype.render = function () {
-  var state = this.props
-  var manifest
-  try {
-    manifest = chrome.runtime.getManifest()
-  } catch (e) {
-    manifest = { version: '2.0.0' }
-  }
+  const state = this.props
+  const version = global.platform.getVersion()
 
   return (
-    h('.flex-column.flex-grow', [
+    h('.flex-column.flex-grow', {
+      style: {
+        maxWidth: '400px',
+      },
+    }, [
 
       // subtitle and nav
       h('.section-title.flex-row.flex-center', [
@@ -52,69 +51,95 @@ InfoScreen.prototype.render = function () {
               style: {
                 marginBottom: '10px',
               },
-            }, `Version: ${manifest.version}`),
+            }, `Version: ${version}`),
           ]),
+
+          h('div', {
+            style: {
+              marginBottom: '5px',
+            }},
+            [
+              h('div', [
+                h('a', {
+                  href: 'https://metamask.io/privacy.html',
+                  target: '_blank',
+                  onClick (event) { this.navigateTo(event.target.href) },
+                }, [
+                  h('div.info', 'Privacy Policy'),
+                ]),
+              ]),
+              h('div', [
+                h('a', {
+                  href: 'https://metamask.io/terms.html',
+                  target: '_blank',
+                  onClick (event) { this.navigateTo(event.target.href) },
+                }, [
+                  h('div.info', 'Terms of Use'),
+                ]),
+              ]),
+              h('div', [
+                h('a', {
+                  href: 'https://metamask.io/attributions.html',
+                  target: '_blank',
+                  onClick (event) { this.navigateTo(event.target.href) },
+                }, [
+                  h('div.info', 'Attributions'),
+                ]),
+              ]),
+            ]
+          ),
 
           h('hr', {
             style: {
-              margin: '20px 0 ',
+              margin: '10px 0 ',
               width: '7em',
             },
           }),
-
-          h('.info',
-            `For more information on MetaMask
-             you can visit our web site. If you want to
-             contact us with questions or just
-             say 'Hi', you can find us on theise platforms:`),
 
           h('div', {
             style: {
               paddingLeft: '30px',
             }},
             [
+              h('div.fa.fa-support', [
+                h('a.info', {
+                  href: 'https://metamask.helpscoutdocs.com/',
+                  target: '_blank',
+                }, 'Visit our Knowledge Base'),
+              ]),
+
               h('div', [
                 h('a', {
                   href: 'https://metamask.io/',
                   target: '_blank',
-                  onClick (event) { this.navigateTo(event.target.href) },
                 }, [
                   h('img.icon-size', {
-                    src: manifest.icons[128],
+                    src: 'images/icon-128.png',
+                    style: {
+                      // IE6-9
+                      filter: 'grayscale(100%)',
+                      // Microsoft Edge and Firefox 35+
+                      WebkitFilter: 'grayscale(100%)',
+                    },
                   }),
                   h('div.info', 'Visit our web site'),
                 ]),
               ]),
-              h('div.fa.fa-slack', [
-                h('a.info', {
-                  href: 'http://slack.metamask.io',
-                  target: '_blank',
-                  onClick (event) { this.navigateTo(event.target.href) },
-                }, 'Join the conversation on Slack'),
-              ]),
 
-              h('div.fa.fa-twitter', [
-                h('a.info', {
-                  href: 'https://twitter.com/metamask_io',
-                  target: '_blank',
-                  onClick (event) { this.navigateTo(event.target.href) },
-                }, 'Follow us on Twitter'),
+              h('div', [
+                h('.fa.fa-twitter', [
+                  h('a.info', {
+                    href: 'https://twitter.com/metamask_io',
+                    target: '_blank',
+                  }, 'Follow us on Twitter'),
+                ]),
               ]),
 
               h('div.fa.fa-envelope', [
                 h('a.info', {
                   target: '_blank',
-                  style: { width: '85vw' },
-                  onClick () { chrome.tabs.create({url: 'mailto:help@metamask.io?subject=Feedback'}) },
-                }, 'Email us any questions or comments!'),
-              ]),
-
-              h('div.fa.fa-github', [
-                h('a.info', {
-                  href: 'https://github.com/metamask/talk/issues',
-                  target: '_blank',
-                  onClick (event) { this.navigateTo(event.target.href) },
-                }, 'Start a thread on Github'),
+                  href: 'mailto:support@metamask.io?subject=MetaMask Support',
+                }, 'Email us!'),
               ]),
             ]),
         ]),
@@ -124,5 +149,6 @@ InfoScreen.prototype.render = function () {
 }
 
 InfoScreen.prototype.navigateTo = function (url) {
-  chrome.tabs.create({ url })
+  global.platform.openWindow({ url })
 }
+

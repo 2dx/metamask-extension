@@ -1,5 +1,6 @@
 const Duplex = require('readable-stream').Duplex
 const inherits = require('util').inherits
+const noop = function () {}
 
 module.exports = PortDuplexStream
 
@@ -20,21 +21,14 @@ PortDuplexStream.prototype._onMessage = function (msg) {
   if (Buffer.isBuffer(msg)) {
     delete msg._isBuffer
     var data = new Buffer(msg)
-    // console.log('PortDuplexStream - saw message as buffer', data)
     this.push(data)
   } else {
-    // console.log('PortDuplexStream - saw message', msg)
     this.push(msg)
   }
 }
 
 PortDuplexStream.prototype._onDisconnect = function () {
-  try {
-    // this.end()
-    this.emit('close')
-  } catch (err) {
-    this.emit('error', err)
-  }
+  this.destroy()
 }
 
 // stream plumbing
@@ -46,20 +40,12 @@ PortDuplexStream.prototype._write = function (msg, encoding, cb) {
     if (Buffer.isBuffer(msg)) {
       var data = msg.toJSON()
       data._isBuffer = true
-      // console.log('PortDuplexStream - sent message as buffer', data)
       this._port.postMessage(data)
     } else {
-      // console.log('PortDuplexStream - sent message', msg)
       this._port.postMessage(msg)
     }
-    cb()
   } catch (err) {
-    console.error(err)
-    // this.emit('error', err)
-    cb(new Error('PortDuplexStream - disconnected'))
+    return cb(new Error('PortDuplexStream - disconnected'))
   }
+  cb()
 }
-
-// util
-
-function noop () {}

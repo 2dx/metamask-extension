@@ -1,35 +1,54 @@
 const Component = require('react').Component
 const h = require('react-hyperscript')
 const inherits = require('util').inherits
+const connect = require('react-redux').connect
 
-const EtherBalance = require('./eth-balance')
+const EthBalance = require('./eth-balance')
 const addressSummary = require('../util').addressSummary
-const explorerLink = require('../../lib/explorer-link')
+const explorerLink = require('etherscan-link').createExplorerLink
 const CopyButton = require('./copyButton')
-const vreme = new (require('vreme'))
+const vreme = new (require('vreme'))()
+const Tooltip = require('./tooltip')
+const numberToBN = require('number-to-bn')
+const actions = require('../actions')
 
 const TransactionIcon = require('./transaction-list-item-icon')
+const ShiftListItem = require('./shift-list-item')
 
-module.exports = TransactionListItem
+const mapDispatchToProps = dispatch => {
+  return {
+    retryTransaction: transactionId => dispatch(actions.retryTransaction(transactionId)),
+  }
+}
+
+module.exports = connect(null, mapDispatchToProps)(TransactionListItem)
 
 inherits(TransactionListItem, Component)
 function TransactionListItem () {
   Component.call(this)
 }
 
-TransactionListItem.prototype.render = function () {
-  const { transaction, i, network } = this.props
+TransactionListItem.prototype.showRetryButton = function () {
+  const { transaction = {} } = this.props
+  const { status, time } = transaction
+  return status === 'submitted' && Date.now() - time > 30000
+}
 
+TransactionListItem.prototype.render = function () {
+  const { transaction, network, conversionRate, currentCurrency } = this.props
+  const { status } = transaction
+  if (transaction.key === 'shapeshift') {
+    if (network === '1') return h(ShiftListItem, transaction)
+  }
   var date = formatDate(transaction.time)
 
   let isLinkable = false
   const numericNet = parseInt(network)
-  isLinkable = numericNet === 1 || numericNet === 2
+  isLinkable = numericNet === 1 || numericNet === 3 || numericNet === 4 || numericNet === 42
 
   var isMsg = ('msgParams' in transaction)
   var isTx = ('txParams' in transaction)
-  var isPending = transaction.status === 'unconfirmed'
-
+  var isPending = status === 'unapproved'
   let txParams
   if (isTx) {
     txParams = transaction.txParams
@@ -37,44 +56,106 @@ TransactionListItem.prototype.render = function () {
     txParams = transaction.msgParams
   }
 
-  const isClickable = ('hash' in transaction && isLinkable) || isPending
+  const nonce = txParams.nonce ? numberToBN(txParams.nonce).toString(10) : ''
 
+  const isClickable = ('hash' in transaction && isLinkable) || isPending
   return (
-    h(`.transaction-list-item.flex-row.flex-space-between${isClickable ? '.pointer' : ''}`, {
-      key: `tx-${transaction.id + i}`,
+    h('.transaction-list-item.flex-column', {
       onClick: (event) => {
         if (isPending) {
           this.props.showTx(transaction.id)
         }
-
+        event.stopPropagation()
         if (!transaction.hash || !isLinkable) return
         var url = explorerLink(transaction.hash, parseInt(network))
-        chrome.tabs.create({ url })
+        global.platform.openWindow({ url })
       },
       style: {
         padding: '20px 0',
+        alignItems: 'center',
       },
     }, [
+      h(`.flex-row.flex-space-between${isClickable ? '.pointer' : ''}`, {
+        style: {
+          width: '100%',
+        },
+      }, [
+        h('.identicon-wrapper.flex-column.flex-center.select-none', [
+          h(TransactionIcon, { txParams, transaction, isTx, isMsg }),
+        ]),
 
-      // large identicon
-      h('.identicon-wrapper.flex-column.flex-center.select-none', [
-        transaction.status === 'unconfirmed' ? h('i.fa.fa-ellipsis-h', {style: { fontSize: '27px' }})
-         : h(TransactionIcon, { txParams, transaction, isTx, isMsg }),
+        h(Tooltip, {
+          title: 'Transaction Number',
+          position: 'right',
+        }, [
+          h('span', {
+            style: {
+              display: 'flex',
+              cursor: 'normal',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '10px',
+            },
+          }, nonce),
+        ]),
+
+        h('.flex-column', {style: {width: '200px', overflow: 'hidden'}}, [
+          domainField(txParams),
+          h('div', date),
+          recipientField(txParams, transaction, isTx, isMsg),
+        ]),
+
+        // Places a copy button if tx is successful, else places a placeholder empty div.
+        transaction.hash ? h(CopyButton, { value: transaction.hash }) : h('div', {style: { display: 'flex', alignItems: 'center', width: '26px' }}),
+
+        isTx ? h(EthBalance, {
+          value: txParams.value,
+          conversionRate,
+          currentCurrency,
+          width: '55px',
+          shorten: true,
+          showFiat: false,
+          style: {fontSize: '15px'},
+        }) : h('.flex-column'),
       ]),
 
-      h('.flex-column', [
-        domainField(txParams),
-        h('div', date),
-        recipientField(txParams, transaction, isTx, isMsg),
+      this.showRetryButton() && h('.transition-list-item__retry.grow-on-hover', {
+        onClick: event => {
+          event.stopPropagation()
+          this.resubmit()
+        },
+        style: {
+          height: '22px',
+          borderRadius: '22px',
+          color: '#F9881B',
+          padding: '0 20px',
+          backgroundColor: '#FFE3C9',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          fontSize: '8px',
+          cursor: 'pointer',
+        },
+      }, [
+        h('div', {
+          style: {
+            paddingRight: '2px',
+          },
+        }, 'Taking too long?'),
+        h('div', {
+          style: {
+            textDecoration: 'underline',
+          },
+        }, 'Retry with a higher gas price here'),
       ]),
-
-      transaction.hash ? h(CopyButton, { value: transaction.hash }) : null,
-
-      isTx ? h(EtherBalance, {
-        value: txParams.value,
-      }) : h('.flex-column'),
     ])
   )
+}
+
+TransactionListItem.prototype.resubmit = function () {
+  const { transaction } = this.props
+  this.props.retryTransaction(transaction.id)
 }
 
 function domainField (txParams) {
@@ -82,6 +163,9 @@ function domainField (txParams) {
     style: {
       fontSize: 'x-small',
       color: '#ABA9AA',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      width: '100%',
     },
   }, [
     txParams.origin,
@@ -106,7 +190,7 @@ function recipientField (txParams, transaction, isTx, isMsg) {
     },
   }, [
     message,
-    failIfFailed(transaction),
+    renderErrorOrWarning(transaction),
   ])
 }
 
@@ -114,11 +198,41 @@ function formatDate (date) {
   return vreme.format(new Date(date), 'March 16 2014 14:30')
 }
 
-function failIfFailed (transaction) {
-  if (transaction.status === 'rejected') {
+function renderErrorOrWarning (transaction) {
+  const { status } = transaction
+
+  // show rejected
+  if (status === 'rejected') {
     return h('span.error', ' (Rejected)')
   }
-  if (transaction.status === 'failed') {
-    return h('span.error', ' (Failed)')
+  if (transaction.err || transaction.warning) {
+    const { err, warning = {} } = transaction
+    const errFirst = !!((err && warning) || err)
+
+    errFirst ? err.message : warning.message
+
+    // show error
+    if (err) {
+      const message = err.message || ''
+      return (
+          h(Tooltip, {
+            title: message,
+            position: 'bottom',
+          }, [
+            h(`span.error`, ` (Failed)`),
+          ])
+      )
+    }
+
+    // show warning
+    if (warning) {
+      const message = warning.message
+      return h(Tooltip, {
+        title: message,
+        position: 'bottom',
+      }, [
+        h(`span.warning`, ` (Warning)`),
+      ])
+    }
   }
 }

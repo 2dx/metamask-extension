@@ -1,94 +1,77 @@
-const url = require('url')
-const EventEmitter = require('events').EventEmitter
-const async = require('async')
-const Dnode = require('dnode')
-const Web3 = require('web3')
-const MetaMaskUi = require('../../ui')
-const MetaMaskUiCss = require('../../ui/css')
 const injectCss = require('inject-css')
+const OldMetaMaskUiCss = require('../../old-ui/css')
+const NewMetaMaskUiCss = require('../../ui/css')
+const startPopup = require('./popup-core')
 const PortStream = require('./lib/port-stream.js')
-const StreamProvider = require('web3-stream-provider')
-const setupMultiplex = require('./lib/stream-utils.js').setupMultiplex
+const isPopupOrNotification = require('./lib/is-popup-or-notification')
+const extension = require('extensionizer')
+const ExtensionPlatform = require('./platforms/extension')
+const NotificationManager = require('./lib/notification-manager')
+const notificationManager = new NotificationManager()
+const setupRaven = require('./setupRaven')
 
-// setup app
-var css = MetaMaskUiCss()
-injectCss(css)
+// create platform global
+global.platform = new ExtensionPlatform()
 
-async.parallel({
-  currentDomain: getCurrentDomain,
-  accountManager: connectToAccountManager,
-}, setupApp)
+// setup sentry error reporting
+const release = global.platform.getVersion()
+setupRaven({ release })
 
-function connectToAccountManager (cb) {
-  // setup communication with background
-  var pluginPort = chrome.runtime.connect({name: 'popup'})
-  var portStream = new PortStream(pluginPort)
-  // setup multiplexing
-  var mx = setupMultiplex(portStream)
-  // connect features
-  setupControllerConnection(mx.createStream('controller'), cb)
-  setupWeb3Connection(mx.createStream('provider'))
-}
+// inject css
+// const css = MetaMaskUiCss()
+// injectCss(css)
 
-function setupWeb3Connection (stream) {
-  var remoteProvider = new StreamProvider()
-  remoteProvider.pipe(stream).pipe(remoteProvider)
-  stream.on('error', console.error.bind(console))
-  remoteProvider.on('error', console.error.bind(console))
-  global.web3 = new Web3(remoteProvider)
-}
+// identify window type (popup, notification)
+const windowType = isPopupOrNotification()
+global.METAMASK_UI_TYPE = windowType
+closePopupIfOpen(windowType)
 
-function setupControllerConnection (stream, cb) {
-  var eventEmitter = new EventEmitter()
-  var background = Dnode({
-    sendUpdate: function (state) {
-      eventEmitter.emit('update', state)
-    },
-  })
-  stream.pipe(background).pipe(stream)
-  background.once('remote', function (accountManager) {
-    // setup push events
-    accountManager.on = eventEmitter.on.bind(eventEmitter)
-    cb(null, accountManager)
-  })
-}
+// setup stream to background
+const extensionPort = extension.runtime.connect({ name: windowType })
+const connectionStream = new PortStream(extensionPort)
 
-function getCurrentDomain (cb) {
-  const unknown = '<unknown>'
-  if (!chrome.tabs) return cb(null, unknown)
-  chrome.tabs.query({active: true, currentWindow: true}, function (results) {
-    var activeTab = results[0]
-    var currentUrl = activeTab && activeTab.url
-    var currentDomain = url.parse(currentUrl).host
-    if (!currentUrl) {
-      return cb(null, unknown)
+// start ui
+const container = document.getElementById('app-content')
+startPopup({ container, connectionStream }, (err, store) => {
+  if (err) return displayCriticalError(err)
+
+  // Code commented out until we begin auto adding users to NewUI
+  // const { isMascara, identities = {}, featureFlags = {} } = store.getState().metamask
+  // const firstTime = Object.keys(identities).length === 0
+  const { isMascara, featureFlags = {} } = store.getState().metamask
+  let betaUIState = featureFlags.betaUI
+
+  // Code commented out until we begin auto adding users to NewUI
+  // const useBetaCss = isMascara || firstTime || betaUIState
+  const useBetaCss = isMascara || betaUIState
+
+  let css = useBetaCss ? NewMetaMaskUiCss() : OldMetaMaskUiCss()
+  let deleteInjectedCss = injectCss(css)
+  let newBetaUIState
+
+  store.subscribe(() => {
+    const state = store.getState()
+    newBetaUIState = state.metamask.featureFlags.betaUI
+    if (newBetaUIState !== betaUIState) {
+      deleteInjectedCss()
+      betaUIState = newBetaUIState
+      css = betaUIState ? NewMetaMaskUiCss() : OldMetaMaskUiCss()
+      deleteInjectedCss = injectCss(css)
     }
-    cb(null, currentDomain)
+    if (state.appState.shouldClose) notificationManager.closePopup()
   })
-}
+})
 
-function clearNotifications(){
-  chrome.notifications.getAll(function (object) {
-    for (let notification in object){
-      chrome.notifications.clear(notification)
-    }
-  })
-}
 
-function setupApp (err, opts) {
-  if (err) {
-    alert(err.stack)
-    throw err
+function closePopupIfOpen (windowType) {
+  if (windowType !== 'notification') {
+    notificationManager.closePopup()
   }
+}
 
-  clearNotifications()
-
-  var container = document.getElementById('app-content')
-
-  MetaMaskUi({
-    container: container,
-    accountManager: opts.accountManager,
-    currentDomain: opts.currentDomain,
-    networkVersion: opts.networkVersion,
-  })
+function displayCriticalError (err) {
+  container.innerHTML = '<div class="critical-error">The MetaMask app failed to load: please open and close MetaMask again to restart.</div>'
+  container.style.height = '80px'
+  log.error(err.stack)
+  throw err
 }

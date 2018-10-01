@@ -1,9 +1,10 @@
-const HttpProvider = require('web3/lib/web3/httpprovider')
-const Streams = require('mississippi')
-const ObjectMultiplex = require('./obj-multiplex')
-const StreamProvider = require('web3-stream-provider')
-const RemoteStore = require('./remote-store.js').RemoteStore
-const MetamaskConfig = require('../config.js')
+const pump = require('pump')
+const RpcEngine = require('json-rpc-engine')
+const createIdRemapMiddleware = require('json-rpc-engine/src/idRemapMiddleware')
+const createStreamMiddleware = require('json-rpc-middleware-stream')
+const LocalStorageStore = require('obs-store')
+const asStream = require('obs-store/lib/asStream')
+const ObjectMultiplex = require('obj-multiplex')
 
 module.exports = MetamaskInpageProvider
 
@@ -11,63 +12,84 @@ function MetamaskInpageProvider (connectionStream) {
   const self = this
 
   // setup connectionStream multiplexing
-  var multiStream = ObjectMultiplex()
-  Streams.pipe(connectionStream, multiStream, connectionStream, function (err) {
-    console.warn('MetamaskInpageProvider - lost connection to MetaMask')
-    if (err) throw err
-  })
-  self.multiStream = multiStream
+  const mux = self.mux = new ObjectMultiplex()
+  pump(
+    connectionStream,
+    mux,
+    connectionStream,
+    (err) => logStreamDisconnectWarning('MetaMask', err)
+  )
 
-  // subscribe to metamask public config
-  var publicConfigStore = remoteStoreWithLocalStorageCache('MetaMask-Config')
-  var storeStream = publicConfigStore.createStream()
-  Streams.pipe(storeStream, multiStream.createStream('publicConfig'), storeStream, function (err) {
-    console.warn('MetamaskInpageProvider - lost connection to MetaMask publicConfig')
-    if (err) throw err
-  })
-  self.publicConfigStore = publicConfigStore
+  // subscribe to metamask public config (one-way)
+  self.publicConfigStore = new LocalStorageStore({ storageKey: 'MetaMask-Config' })
 
-  // connect to sync provider
-  self.syncProvider = createSyncProvider(publicConfigStore.get('provider'))
-  // subscribe to publicConfig to update the syncProvider on change
-  publicConfigStore.subscribe(function (state) {
-    self.syncProvider = createSyncProvider(state.provider)
-  })
+  pump(
+    mux.createStream('publicConfig'),
+    asStream(self.publicConfigStore),
+    (err) => logStreamDisconnectWarning('MetaMask PublicConfigStore', err)
+  )
+
+  // ignore phishing warning message (handled elsewhere)
+  mux.ignoreStream('phishing')
 
   // connect to async provider
-  var asyncProvider = new StreamProvider()
-  Streams.pipe(asyncProvider, multiStream.createStream('provider'), asyncProvider, function (err) {
-    console.warn('MetamaskInpageProvider - lost connection to MetaMask provider')
-    if (err) throw err
-  })
-  asyncProvider.on('error', console.error.bind(console))
-  self.asyncProvider = asyncProvider
-  // overwrite own sendAsync method
-  self.sendAsync = asyncProvider.sendAsync.bind(asyncProvider)
+  const streamMiddleware = createStreamMiddleware()
+  pump(
+    streamMiddleware.stream,
+    mux.createStream('provider'),
+    streamMiddleware.stream,
+    (err) => logStreamDisconnectWarning('MetaMask RpcProvider', err)
+  )
+
+  // handle sendAsync requests via dapp-side rpc engine
+  const rpcEngine = new RpcEngine()
+  rpcEngine.push(createIdRemapMiddleware())
+  rpcEngine.push(streamMiddleware)
+  self.rpcEngine = rpcEngine
 }
+
+// handle sendAsync requests via asyncProvider
+// also remap ids inbound and outbound
+MetamaskInpageProvider.prototype.sendAsync = function (payload, cb) {
+  const self = this
+  self.rpcEngine.handle(payload, cb)
+}
+
 
 MetamaskInpageProvider.prototype.send = function (payload) {
   const self = this
-  let selectedAddress
 
-  var result = null
+  let selectedAddress
+  let result = null
   switch (payload.method) {
 
     case 'eth_accounts':
       // read from localStorage
-      selectedAddress = self.publicConfigStore.get('selectedAddress')
+      selectedAddress = self.publicConfigStore.getState().selectedAddress
       result = selectedAddress ? [selectedAddress] : []
       break
 
     case 'eth_coinbase':
       // read from localStorage
-      selectedAddress = self.publicConfigStore.get('selectedAddress')
-      result = selectedAddress || '0x0000000000000000000000000000000000000000'
+      selectedAddress = self.publicConfigStore.getState().selectedAddress
+      result = selectedAddress || null
       break
 
-    // fallback to normal rpc
+    case 'eth_uninstallFilter':
+      self.sendAsync(payload, noop)
+      result = true
+      break
+
+    case 'net_version':
+      const networkVersion = self.publicConfigStore.getState().networkVersion
+      result = networkVersion || null
+      break
+
+    // throw not-supported Error
     default:
-      return self.syncProvider.send(payload)
+      var link = 'https://github.com/MetaMask/faq/blob/master/DEVELOPERS.md#dizzy-all-async---think-of-metamask-as-a-light-client'
+      var message = `The MetaMask Web3 object does not support synchronous methods like ${payload.method} without a callback parameter. See ${link} for details.`
+      throw new Error(message)
 
   }
 
@@ -79,45 +101,18 @@ MetamaskInpageProvider.prototype.send = function (payload) {
   }
 }
 
-MetamaskInpageProvider.prototype.sendAsync = function () {
-  throw new Error('MetamaskInpageProvider - sendAsync not overwritten')
-}
-
 MetamaskInpageProvider.prototype.isConnected = function () {
   return true
 }
 
+MetamaskInpageProvider.prototype.isMetaMask = true
+
 // util
 
-function createSyncProvider (providerConfig) {
-  providerConfig = providerConfig || {}
-  let syncProviderUrl
-
-  if (providerConfig.rpcTarget) {
-    syncProviderUrl = providerConfig.rpcTarget
-  } else {
-    switch (providerConfig.type) {
-      case 'testnet':
-        syncProviderUrl = MetamaskConfig.network.testnet
-        break
-      case 'mainnet':
-        syncProviderUrl = MetamaskConfig.network.mainnet
-        break
-      default:
-        syncProviderUrl = MetamaskConfig.network.default
-    }
-  }
-  return new HttpProvider(syncProviderUrl)
+function logStreamDisconnectWarning (remoteLabel, err) {
+  let warningMsg = `MetamaskInpageProvider - lost connection to ${remoteLabel}`
+  if (err) warningMsg += '\n' + err.stack
+  console.warn(warningMsg)
 }
 
-function remoteStoreWithLocalStorageCache (storageKey) {
-  // read local cache
-  var initState = JSON.parse(localStorage[storageKey] || '{}')
-  var store = new RemoteStore(initState)
-  // cache the latest state locally
-  store.subscribe(function (state) {
-    localStorage[storageKey] = JSON.stringify(state)
-  })
-
-  return store
-}
+function noop () {}

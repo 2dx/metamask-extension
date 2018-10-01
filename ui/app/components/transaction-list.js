@@ -13,13 +13,22 @@ function TransactionList () {
 }
 
 TransactionList.prototype.render = function () {
-  const { txsToRender, network, unconfMsgs } = this.props
-  const transactions = txsToRender.concat(unconfMsgs)
+  const { transactions, network, unapprovedMsgs, conversionRate } = this.props
+
+  var shapeShiftTxList
+  if (network === '1') {
+    shapeShiftTxList = this.props.shapeShiftTxList
+  }
+  const txsToRender = !shapeShiftTxList ? transactions.concat(unapprovedMsgs) : transactions.concat(unapprovedMsgs, shapeShiftTxList)
   .sort((a, b) => b.time - a.time)
 
   return (
 
-    h('section.transaction-list', [
+    h('section.transaction-list.full-flex-height', {
+      style: {
+        justifyContent: 'center',
+      },
+    }, [
 
       h('style', `
         .transaction-list .transaction-list-item:not(:last-of-type) {
@@ -31,41 +40,48 @@ TransactionList.prototype.render = function () {
         }
       `),
 
-      h('h3.flex-center.text-transform-uppercase', {
-        style: {
-          background: '#EBEBEB',
-          color: '#AEAEAE',
-          paddingTop: '4px',
-          paddingBottom: '4px',
-        },
-      }, [
-        'Transactions',
-      ]),
-
       h('.tx-list', {
         style: {
           overflowY: 'auto',
-          height: '305px',
+          height: '100%',
           padding: '0 20px',
           textAlign: 'center',
         },
-      }, (
+      }, [
 
-        transactions.length
-          ? transactions.map((transaction, i) => {
+        txsToRender.length
+          ? txsToRender.map((transaction, i) => {
+            let key
+            switch (transaction.key) {
+              case 'shapeshift':
+                const { depositAddress, time } = transaction
+                key = `shift-tx-${depositAddress}-${time}-${i}`
+                break
+              default:
+                key = `tx-${transaction.id}-${i}`
+            }
             return h(TransactionListItem, {
-              transaction, i, network,
+              transaction, i, network, key,
+              conversionRate,
               showTx: (txId) => {
                 this.props.viewPendingTx(txId)
               },
             })
           })
-        : [h('.flex-center', {
+        : h('.flex-center.full-flex-height', {
           style: {
-            height: '100%',
+            flexDirection: 'column',
+            justifyContent: 'center',
           },
-        }, 'No transaction history...')]
-      )),
+        }, [
+          h('p', {
+            style: {
+              marginTop: '50px',
+            },
+          }, 'No transaction history.'),
+        ]),
+      ]),
     ])
   )
 }
+

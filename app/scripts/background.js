@@ -1,192 +1,169 @@
 const urlUtil = require('url')
-const extend = require('xtend')
-const Dnode = require('dnode')
-const eos = require('end-of-stream')
+const endOfStream = require('end-of-stream')
+const pump = require('pump')
+const log = require('loglevel')
+const extension = require('extensionizer')
+const LocalStorageStore = require('obs-store/lib/localStorage')
+const storeTransform = require('obs-store/lib/transform')
+const asStream = require('obs-store/lib/asStream')
+const ExtensionPlatform = require('./platforms/extension')
+const Migrator = require('./lib/migrator/')
+const migrations = require('./migrations/')
 const PortStream = require('./lib/port-stream.js')
-const createUnlockRequestNotification = require('./lib/notifications.js').createUnlockRequestNotification
-const createTxNotification = require('./lib/notifications.js').createTxNotification
-const createMsgNotification = require('./lib/notifications.js').createMsgNotification
-const messageManager = require('./lib/message-manager')
-const setupMultiplex = require('./lib/stream-utils.js').setupMultiplex
+const NotificationManager = require('./lib/notification-manager.js')
 const MetamaskController = require('./metamask-controller')
+const firstTimeState = require('./first-time-state')
+const setupRaven = require('./setupRaven')
 
 const STORAGE_KEY = 'metamask-config'
+const METAMASK_DEBUG = 'GULP_METAMASK_DEBUG'
 
-const controller = new MetamaskController({
-  // User confirmation callbacks:
-  showUnconfirmedMessage,
-  unlockAccountMessage,
-  showUnconfirmedTx,
-  // Persistence Methods:
-  setData,
-  loadData,
-})
-const idStore = controller.idStore
+window.log = log
+log.setDefaultLevel(METAMASK_DEBUG ? 'debug' : 'warn')
 
-function unlockAccountMessage () {
-  createUnlockRequestNotification({
-    title: 'Account Unlock Request',
+const platform = new ExtensionPlatform()
+const notificationManager = new NotificationManager()
+global.METAMASK_NOTIFIER = notificationManager
+
+// setup sentry error reporting
+const release = platform.getVersion()
+const raven = setupRaven({ release })
+
+let popupIsOpen = false
+
+// state persistence
+const diskStore = new LocalStorageStore({ storageKey: STORAGE_KEY })
+
+// initialization flow
+initialize().catch(log.error)
+
+async function initialize () {
+  const initState = await loadStateFromPersistence()
+  await setupController(initState)
+  log.debug('MetaMask initialization complete.')
+}
+
+//
+// State and Persistence
+//
+
+async function loadStateFromPersistence () {
+  // migrations
+  const migrator = new Migrator({ migrations })
+  // read from disk
+  let versionedData = diskStore.getState() || migrator.generateInitialState(firstTimeState)
+  // migrate data
+  versionedData = await migrator.migrateData(versionedData)
+  // write to disk
+  diskStore.putState(versionedData)
+  // return just the data
+  return versionedData.data
+}
+
+function setupController (initState) {
+  //
+  // MetaMask Controller
+  //
+
+  const controller = new MetamaskController({
+    // User confirmation callbacks:
+    showUnconfirmedMessage: triggerUi,
+    unlockAccountMessage: triggerUi,
+    showUnapprovedTx: triggerUi,
+    // initial state
+    initState,
+    // platform specific api
+    platform,
   })
-}
+  global.metamaskController = controller
 
-function showUnconfirmedMessage (msgParams, msgId) {
-  var controllerState = controller.getState()
-
-  createMsgNotification({
-    imageifyIdenticons: false,
-    txData: {
-      msgParams: msgParams,
-      time: (new Date()).getTime(),
-    },
-    identities: controllerState.identities,
-    accounts: controllerState.accounts,
-    onConfirm: idStore.approveMessage.bind(idStore, msgId, noop),
-    onCancel: idStore.cancelMessage.bind(idStore, msgId),
-  })
-
-}
-
-function showUnconfirmedTx (txParams, txData, onTxDoneCb) {
-  var controllerState = controller.getState()
-
-  createTxNotification({
-    imageifyIdenticons: false,
-    txData: {
-      txParams: txParams,
-      time: (new Date()).getTime(),
-    },
-    identities: controllerState.identities,
-    accounts: controllerState.accounts,
-    onConfirm: idStore.approveTransaction.bind(idStore, txData.id, noop),
-    onCancel: idStore.cancelTransaction.bind(idStore, txData.id),
-  })
-  
-}
-
-//
-// connect to other contexts
-//
-
-chrome.runtime.onConnect.addListener(connectRemote)
-function connectRemote (remotePort) {
-  var isMetaMaskInternalProcess = (remotePort.name === 'popup')
-  var portStream = new PortStream(remotePort)
-  if (isMetaMaskInternalProcess) {
-    // communication with popup
-    setupTrustedCommunication(portStream, 'MetaMask')
-  } else {
-    // communication with page
-    var originDomain = urlUtil.parse(remotePort.sender.url).hostname
-    setupUntrustedCommunication(portStream, originDomain)
-  }
-}
-
-function setupUntrustedCommunication (connectionStream, originDomain) {
-  // setup multiplexing
-  var mx = setupMultiplex(connectionStream)
-  // connect features
-  controller.setupProviderConnection(mx.createStream('provider'), originDomain)
-  controller.setupPublicConfig(mx.createStream('publicConfig'))
-}
-
-function setupTrustedCommunication (connectionStream, originDomain) {
-  // setup multiplexing
-  var mx = setupMultiplex(connectionStream)
-  // connect features
-  setupControllerConnection(mx.createStream('controller'))
-  controller.setupProviderConnection(mx.createStream('provider'), originDomain)
-}
-
-//
-// remote features
-//
-
-function setupControllerConnection (stream) {
-  controller.stream = stream
-  var api = controller.getApi()
-  var dnode = Dnode(api)
-  stream.pipe(dnode).pipe(stream)
-  dnode.on('remote', (remote) => {
-    // push updates to popup
-    controller.ethStore.on('update', controller.sendUpdate.bind(controller))
-    controller.remote = remote
-    idStore.on('update', controller.sendUpdate.bind(controller))
-
-    // teardown on disconnect
-    eos(stream, () => {
-      controller.ethStore.removeListener('update', controller.sendUpdate.bind(controller))
+  // report failed transactions to Sentry
+  controller.txController.on(`tx:status-update`, (txId, status) => {
+    if (status !== 'failed') return
+    const txMeta = controller.txController.txStateManager.getTx(txId)
+    raven.captureMessage('Transaction Failed', {
+      // "extra" key is required by Sentry
+      extra: txMeta,
     })
   })
+
+  // setup state persistence
+  pump(
+    asStream(controller.store),
+    storeTransform(versionifyData),
+    asStream(diskStore)
+  )
+
+  function versionifyData (state) {
+    const versionedData = diskStore.getState()
+    versionedData.data = state
+    return versionedData
+  }
+
+  //
+  // connect to other contexts
+  //
+
+  extension.runtime.onConnect.addListener(connectRemote)
+  function connectRemote (remotePort) {
+    const isMetaMaskInternalProcess = remotePort.name === 'popup' || remotePort.name === 'notification'
+    const portStream = new PortStream(remotePort)
+    if (isMetaMaskInternalProcess) {
+      // communication with popup
+      popupIsOpen = popupIsOpen || (remotePort.name === 'popup')
+      controller.setupTrustedCommunication(portStream, 'MetaMask')
+      // record popup as closed
+      if (remotePort.name === 'popup') {
+        endOfStream(portStream, () => {
+          popupIsOpen = false
+        })
+      }
+    } else {
+      // communication with page
+      const originDomain = urlUtil.parse(remotePort.sender.url).hostname
+      controller.setupUntrustedCommunication(portStream, originDomain)
+    }
+  }
+
+  //
+  // User Interface setup
+  //
+
+  updateBadge()
+  controller.txController.on('update:badge', updateBadge)
+  controller.messageManager.on('updateBadge', updateBadge)
+  controller.personalMessageManager.on('updateBadge', updateBadge)
+
+  // plugin badge text
+  function updateBadge () {
+    var label = ''
+    var unapprovedTxCount = controller.txController.getUnapprovedTxCount()
+    var unapprovedMsgCount = controller.messageManager.unapprovedMsgCount
+    var unapprovedPersonalMsgs = controller.personalMessageManager.unapprovedPersonalMsgCount
+    var unapprovedTypedMsgs = controller.typedMessageManager.unapprovedTypedMessagesCount
+    var count = unapprovedTxCount + unapprovedMsgCount + unapprovedPersonalMsgs + unapprovedTypedMsgs
+    if (count) {
+      label = String(count)
+    }
+    extension.browserAction.setBadgeText({ text: label })
+    extension.browserAction.setBadgeBackgroundColor({ color: '#506F8B' })
+  }
+
+  return Promise.resolve()
 }
 
 //
-// plugin badge text
+// Etc...
 //
 
-idStore.on('update', updateBadge)
+// popup trigger
+function triggerUi () {
+  if (!popupIsOpen) notificationManager.showPopup()
+}
 
-function updateBadge (state) {
-  var label = ''
-  var unconfTxs = controller.configManager.unconfirmedTxs()
-  var unconfTxLen = Object.keys(unconfTxs).length
-  var unconfMsgs = messageManager.unconfirmedMsgs()
-  var unconfMsgLen = Object.keys(unconfMsgs).length
-  var count = unconfTxLen + unconfMsgLen
-  if (count) {
-    label = String(count)
+// On first install, open a window to MetaMask website to how-it-works.
+extension.runtime.onInstalled.addListener(function (details) {
+  if ((details.reason === 'install') && (!METAMASK_DEBUG)) {
+    extension.tabs.create({url: 'https://metamask.io/#how-it-works'})
   }
-  chrome.browserAction.setBadgeText({ text: label })
-  chrome.browserAction.setBadgeBackgroundColor({ color: '#506F8B' })
-}
-
-function loadData () {
-  var oldData = getOldStyleData()
-  var newData
-  try {
-    newData = JSON.parse(window.localStorage[STORAGE_KEY])
-  } catch (e) {}
-
-  var data = extend({
-    meta: {
-      version: 0,
-    },
-    data: {
-      config: {
-        provider: {
-          type: 'testnet',
-        },
-      },
-    },
-  }, oldData || null, newData || null)
-  return data
-}
-
-function getOldStyleData () {
-  var config, wallet, seedWords
-
-  var result = {
-    meta: { version: 0 },
-    data: {},
-  }
-
-  try {
-    config = JSON.parse(window.localStorage['config'])
-    result.data.config = config
-  } catch (e) {}
-  try {
-    wallet = JSON.parse(window.localStorage['lightwallet'])
-    result.data.wallet = wallet
-  } catch (e) {}
-  try {
-    seedWords = window.localStorage['seedWords']
-    result.data.seedWords = seedWords
-  } catch (e) {}
-
-  return result
-}
-
-function setData (data) {
-  window.localStorage[STORAGE_KEY] = JSON.stringify(data)
-}
-
-function noop () {}
+})

@@ -1,52 +1,135 @@
-const LocalMessageDuplexStream = require('./lib/local-message-stream.js')
+const fs = require('fs')
+const path = require('path')
+const pump = require('pump')
+const LocalMessageDuplexStream = require('post-message-stream')
+const PongStream = require('ping-pong-stream/pong')
+const ObjectMultiplex = require('obj-multiplex')
+const extension = require('extensionizer')
 const PortStream = require('./lib/port-stream.js')
-const ObjectMultiplex = require('./lib/obj-multiplex')
+
+const inpageContent = fs.readFileSync(path.join(__dirname, '..', '..', 'dist', 'chrome', 'scripts', 'inpage.js')).toString()
+const inpageSuffix = '//# sourceURL=' + extension.extension.getURL('scripts/inpage.js') + '\n'
+const inpageBundle = inpageContent + inpageSuffix
+
+// Eventually this streaming injection could be replaced with:
+// https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XPCOM/Language_Bindings/Components.utils.exportFunction
+//
+// But for now that is only Firefox
+// If we create a FireFox-only code path using that API,
+// MetaMask will be much faster loading and performant on Firefox.
 
 if (shouldInjectWeb3()) {
   setupInjection()
   setupStreams()
 }
 
-function setupInjection(){
-  // inject in-page script
-  var scriptTag = document.createElement('script')
-  scriptTag.src = chrome.extension.getURL('scripts/inpage.js')
-  scriptTag.onload = function () { this.parentNode.removeChild(this) }
-  var container = document.head || document.documentElement
-  // append as first child
-  container.insertBefore(scriptTag, container.children[0])
+function setupInjection () {
+  try {
+    // inject in-page script
+    var scriptTag = document.createElement('script')
+    scriptTag.textContent = inpageBundle
+    scriptTag.onload = function () { this.parentNode.removeChild(this) }
+    var container = document.head || document.documentElement
+    // append as first child
+    container.insertBefore(scriptTag, container.children[0])
+  } catch (e) {
+    console.error('Metamask injection failed.', e)
+  }
 }
 
-function setupStreams(){
-
+function setupStreams () {
   // setup communication to page and plugin
-  var pageStream = new LocalMessageDuplexStream({
+  const pageStream = new LocalMessageDuplexStream({
     name: 'contentscript',
     target: 'inpage',
   })
-  pageStream.on('error', console.error.bind(console))
-  var pluginPort = chrome.runtime.connect({name: 'contentscript'})
-  var pluginStream = new PortStream(pluginPort)
-  pluginStream.on('error', console.error.bind(console))
+  const pluginPort = extension.runtime.connect({ name: 'contentscript' })
+  const pluginStream = new PortStream(pluginPort)
 
   // forward communication plugin->inpage
-  pageStream.pipe(pluginStream).pipe(pageStream)
+  pump(
+    pageStream,
+    pluginStream,
+    pageStream,
+    (err) => logStreamDisconnectWarning('MetaMask Contentscript Forwarding', err)
+  )
 
-  // connect contentscript->inpage reload stream
-  var mx = ObjectMultiplex()
-  mx.on('error', console.error.bind(console))
-  mx.pipe(pageStream)
-  var reloadStream = mx.createStream('reload')
-  reloadStream.on('error', console.error.bind(console))
+  // setup local multistream channels
+  const mux = new ObjectMultiplex()
+  mux.setMaxListeners(25)
 
-  // if we lose connection with the plugin, trigger tab refresh
-  pluginStream.on('close', function () {
-    reloadStream.write({ method: 'reset' })
-  })
+  pump(
+    mux,
+    pageStream,
+    mux,
+    (err) => logStreamDisconnectWarning('MetaMask Inpage', err)
+  )
+  pump(
+    mux,
+    pluginStream,
+    mux,
+    (err) => logStreamDisconnectWarning('MetaMask Background', err)
+  )
 
+  // connect ping stream
+  const pongStream = new PongStream({ objectMode: true })
+  pump(
+    mux,
+    pongStream,
+    mux,
+    (err) => logStreamDisconnectWarning('MetaMask PingPongStream', err)
+  )
+
+  // connect phishing warning stream
+  const phishingStream = mux.createStream('phishing')
+  phishingStream.once('data', redirectToPhishingWarning)
+
+  // ignore unused channels (handled by background, inpage)
+  mux.ignoreStream('provider')
+  mux.ignoreStream('publicConfig')
 }
 
-function shouldInjectWeb3(){
-  var shouldInject = (window.location.href.indexOf('.pdf') === -1)
-  return shouldInject
+function logStreamDisconnectWarning (remoteLabel, err) {
+  let warningMsg = `MetamaskContentscript - lost connection to ${remoteLabel}`
+  if (err) warningMsg += '\n' + err.stack
+  console.warn(warningMsg)
+}
+
+function shouldInjectWeb3 () {
+  return doctypeCheck() && suffixCheck() && documentElementCheck()
+}
+
+function doctypeCheck () {
+  const doctype = window.document.doctype
+  if (doctype) {
+    return doctype.name === 'html'
+  } else {
+    return true
+  }
+}
+
+function suffixCheck () {
+  var prohibitedTypes = ['xml', 'pdf']
+  var currentUrl = window.location.href
+  var currentRegex
+  for (let i = 0; i < prohibitedTypes.length; i++) {
+    currentRegex = new RegExp(`\\.${prohibitedTypes[i]}$`)
+    if (currentRegex.test(currentUrl)) {
+      return false
+    }
+  }
+  return true
+}
+
+function documentElementCheck () {
+  var documentElement = document.documentElement.nodeName
+  if (documentElement) {
+    return documentElement.toLowerCase() === 'html'
+  }
+  return true
+}
+
+function redirectToPhishingWarning () {
+  console.log('MetaMask - redirecting to phishing warning')
+  window.location.href = 'https://metamask.io/phishing.html'
 }

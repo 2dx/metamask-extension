@@ -1,5 +1,8 @@
 {
   "metamask": {
+    "currentCurrency": "USD",
+    "conversionRate": 11.06608791,
+    "conversionDate": 1470421024,
     "isInitialized": true,
     "isUnlocked": true,
     "currentDomain": "example.com",
@@ -54,21 +57,19 @@
       }
     },
     "transactions": [],
-    "selectedAddress": "0x843963b837841dad3b0f5969ff271108776616df",
     "network": "2",
-    "isConfirmed": true,
     "unconfMsgs": {},
     "messages": [],
     "provider": {
       "type": "testnet"
     },
-    "selectedAccount": "0x843963b837841dad3b0f5969ff271108776616df",
+    "selectedAddress": "0x843963b837841dad3b0f5969ff271108776616df",
     "seedWords": null
   },
   "appState": {
     "menuOpen": false,
     "currentView": {
-      "name": "accounts"
+      "name": "config"
     },
     "accountDetail": {
       "subview": "transactions",
